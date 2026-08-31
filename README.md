@@ -41,7 +41,7 @@ Optional:
 ## Build
 
 ```bash
-git clone https://cursor.com/codebase/<your-org>/qt-music
+git clone https://origin.cursor.com/jy0un9/qt-music.git
 cd qt-music
 qmake6 qt-music.pro
 make -j$(nproc)
