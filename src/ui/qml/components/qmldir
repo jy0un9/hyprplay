@@ -1,0 +1,6 @@
+module components
+Sidebar 1.0 Sidebar.qml
+AppListDelegate 1.0 AppListDelegate.qml
+NavButton 1.0 NavButton.qml
+SectionLabel 1.0 SectionLabel.qml
+AppCard 1.0 AppCard.qml

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Qt Music
+GenericName=Music Player
+Comment=Local FLAC and Opus music player
+Exec=qt-music
+Icon=qt-music
+TryExec=qt-music
+Categories=AudioVideo;Audio;Player;
+Keywords=music;audio;flac;opus;player;library;
+StartupNotify=true
+Terminal=false
+SingleMainWindow=true

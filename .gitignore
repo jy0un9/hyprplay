@@ -1,0 +1,7 @@
+*.o
+moc_*.cpp
+qrc_*.cpp
+.qmake.stash
+Makefile
+qt-music-bin
+moc_predefs.h
