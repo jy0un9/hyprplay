@@ -4,7 +4,7 @@ import QtQuick.Layouts
 
 Pane {
     id: panel
-    padding: 16
+    padding: Theme.spaceLg
     visible: App.playback.currentPath.length > 0
 
     property var media: App.nowPlaying
@@ -19,7 +19,7 @@ Pane {
         Label {
             text: "Now Playing"
             font.bold: true
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             opacity: 0.55
             color: Theme.foreground
             Layout.alignment: Qt.AlignHCenter
@@ -49,7 +49,7 @@ Pane {
                     anchors.centerIn: parent
                     width: 56
                     height: 56
-                    source: "image://themeicon/audio-x-generic-symbolic?56"
+                    source: Theme.iconUrl("audio-x-generic-symbolic", 56, Theme.foreground)
                     fillMode: Image.PreserveAspectFit
                     opacity: 0.22
                     visible: media.albumArtUrl.length === 0
@@ -61,8 +61,9 @@ Pane {
         Label {
             text: playback.title
             font.bold: true
-            font.pixelSize: 15
-            color: Theme.foreground
+            font.pixelSize: Theme.fontTitle
+            color: playback.playing && !playback.paused
+                   ? Theme.accent : Theme.foreground
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter
             Layout.fillWidth: true
@@ -72,7 +73,7 @@ Pane {
         Label {
             text: playback.artist + " — " + playback.album
             opacity: 0.65
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             color: Theme.foreground
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter
@@ -86,12 +87,12 @@ Pane {
             Layout.minimumHeight: 220
             radius: Theme.radiusSm
             color: Theme.rgba(Theme.background, 0.5)
-            border.color: Theme.rgba(Theme.border, 0.3)
+            border.color: Theme.rgba(Theme.border, 0.35)
             border.width: 1
 
             Loader {
                 anchors.fill: parent
-                anchors.margins: 8
+                anchors.margins: Theme.spaceSm
                 source: "qrc:/components/KaraokeLyricsView.qml"
             }
         }

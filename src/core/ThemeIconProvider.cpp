@@ -1,10 +1,12 @@
 #include "ThemeIconProvider.h"
 
+#include <QColor>
 #include <QDir>
 #include <QFile>
 #include <QIcon>
 #include <QImage>
 #include <QProcess>
+#include <QRegularExpression>
 
 namespace {
 
@@ -69,14 +71,29 @@ QPixmap ThemeIconProvider::requestPixmap(const QString &id, QSize *size,
                                          const QSize &requestedSize) {
     QString iconName = id;
     int pixelSize = 24;
-    const int queryIndex = iconName.indexOf(QLatin1Char('?'));
-    if (queryIndex >= 0) {
-        bool ok = false;
-        const int parsed = iconName.mid(queryIndex + 1).toInt(&ok);
-        if (ok && parsed > 0) {
-            pixelSize = parsed;
+    QColor tint(235, 235, 235);
+    const QStringList segments =
+        id.split(QRegularExpression(QStringLiteral("[?&#;]")), Qt::SkipEmptyParts);
+    if (!segments.isEmpty()) {
+        iconName = segments.first();
+        static const QRegularExpression hexRe(
+            QStringLiteral("^(?:color=)?(%23)?([0-9a-fA-F]{3,8})$"));
+        for (int i = 1; i < segments.size(); ++i) {
+            const QString segment = segments.at(i);
+            bool ok = false;
+            const int parsed = segment.toInt(&ok);
+            if (ok && parsed > 0) {
+                pixelSize = parsed;
+                continue;
+            }
+            const auto match = hexRe.match(segment);
+            if (match.hasMatch()) {
+                const QColor candidate(QStringLiteral("#") + match.captured(2));
+                if (candidate.isValid()) {
+                    tint = candidate;
+                }
+            }
         }
-        iconName = iconName.left(queryIndex);
     }
     if (requestedSize.width() > 0) {
         pixelSize = qMax(pixelSize, requestedSize.width());
@@ -93,7 +110,7 @@ QPixmap ThemeIconProvider::requestPixmap(const QString &id, QSize *size,
     QPixmap pixmap;
     if (!icon.isNull()) {
         pixmap = icon.pixmap(QSize(pixelSize, pixelSize));
-        pixmap = tintPixmap(pixmap, QColor(235, 235, 235));
+        pixmap = tintPixmap(pixmap, tint);
     }
 
     if (pixmap.isNull()) {

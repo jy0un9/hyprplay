@@ -176,6 +176,13 @@ void LibraryService::ensureLibrary(const QStringList &roots) {
         return;
     }
 
+    if (m_trackCount > 0 && !m_scanOnLaunch) {
+        m_scanStatus = QStringLiteral("Library loaded (%1 tracks) — launch scan off").arg(m_trackCount);
+        emit scanStatusChanged();
+        emit scanFinished(true);
+        return;
+    }
+
     rescan(roots);
 }
 

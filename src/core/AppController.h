@@ -14,6 +14,7 @@
 #include "DiscogsService.h"
 #include "BeetsService.h"
 #include "ImportService.h"
+#include "LyricsService.h"
 #include "MetadataSearchService.h"
 #include "../models/ArtistModel.h"
 #include "../models/PlaylistListModel.h"
@@ -33,6 +34,7 @@ class AppController : public QObject {
     Q_PROPERTY(DiscogsService *discogs READ discogs CONSTANT)
     Q_PROPERTY(BeetsService *beets READ beets CONSTANT)
     Q_PROPERTY(ImportService *importInbox READ importInbox CONSTANT)
+    Q_PROPERTY(LyricsService *lyrics READ lyrics CONSTANT)
     Q_PROPERTY(MetadataSearchService *metadataSearch READ metadataSearch CONSTANT)
     Q_PROPERTY(bool tagFetchOpen READ tagFetchOpen NOTIFY tagFetchChanged)
     Q_PROPERTY(QString mainView READ mainView NOTIFY mainViewChanged)
@@ -41,6 +43,13 @@ class AppController : public QObject {
     Q_PROPERTY(QStringList albums READ albums NOTIFY albumsChanged)
     Q_PROPERTY(QString selectedArtist READ selectedArtist NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedAlbum READ selectedAlbum NOTIFY selectionChanged)
+    Q_PROPERTY(QString selectedAlbumArtUrl READ selectedAlbumArtUrl NOTIFY selectionChanged)
+    Q_PROPERTY(QString selectedAlbumInfo READ selectedAlbumInfo NOTIFY selectionChanged)
+    Q_PROPERTY(bool nowPlayingFocused READ nowPlayingFocused NOTIFY selectionChanged)
+    Q_PROPERTY(bool albumDiscogsOpen READ albumDiscogsOpen NOTIFY albumDiscogsChanged)
+    Q_PROPERTY(QVariantList albumDiscogsCandidates READ albumDiscogsCandidates NOTIFY albumDiscogsChanged)
+    Q_PROPERTY(int albumDiscogsSelectedIndex READ albumDiscogsSelectedIndex
+               WRITE setAlbumDiscogsSelectedIndex NOTIFY albumDiscogsChanged)
     Q_PROPERTY(QString scanStatus READ scanStatus NOTIFY scanStatusChanged)
     Q_PROPERTY(bool tagEditorOpen READ tagEditorOpen NOTIFY tagEditorChanged)
     Q_PROPERTY(QVariantMap tagEditorFields READ tagEditorFields NOTIFY tagEditorChanged)
@@ -49,6 +58,11 @@ class AppController : public QObject {
     Q_PROPERTY(bool librarySearchOpen READ librarySearchOpen NOTIFY librarySearchOpenChanged)
     Q_PROPERTY(QString librarySearchQuery READ librarySearchQuery NOTIFY librarySearchChanged)
     Q_PROPERTY(QString librarySearchScope READ librarySearchScope NOTIFY librarySearchChanged)
+    Q_PROPERTY(QString libraryFocusColumn READ libraryFocusColumn NOTIFY libraryFocusChanged)
+    Q_PROPERTY(int selectedTrackIndex READ selectedTrackIndex NOTIFY selectionChanged)
+    Q_PROPERTY(QString noticeText READ noticeText NOTIFY noticeChanged)
+    Q_PROPERTY(QString noticeKind READ noticeKind NOTIFY noticeChanged)
+    Q_PROPERTY(int noticeSerial READ noticeSerial NOTIFY noticeChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -65,6 +79,7 @@ public:
     DiscogsService *discogs() const { return m_discogs; }
     BeetsService *beets() const { return m_beets; }
     ImportService *importInbox() const { return m_importInbox; }
+    LyricsService *lyrics() const { return m_lyrics; }
     MetadataSearchService *metadataSearch() const { return m_metadataSearch; }
     bool tagFetchOpen() const { return m_tagFetchOpen; }
     QString mainView() const { return m_mainView; }
@@ -73,6 +88,12 @@ public:
     QStringList albums() const { return m_albums; }
     QString selectedArtist() const { return m_selectedArtist; }
     QString selectedAlbum() const { return m_selectedAlbum; }
+    QString selectedAlbumArtUrl() const { return m_selectedAlbumArtUrl; }
+    QString selectedAlbumInfo() const { return m_selectedAlbumInfo; }
+    bool nowPlayingFocused() const { return m_nowPlayingFocused; }
+    bool albumDiscogsOpen() const { return m_albumDiscogsOpen; }
+    QVariantList albumDiscogsCandidates() const { return m_albumDiscogsCandidates; }
+    int albumDiscogsSelectedIndex() const { return m_albumDiscogsSelectedIndex; }
     QString scanStatus() const { return m_library->scanStatus(); }
     bool tagEditorOpen() const { return m_tagEditorOpen; }
     QVariantMap tagEditorFields() const { return m_tagEditorFields; }
@@ -81,6 +102,11 @@ public:
     bool librarySearchOpen() const { return m_librarySearchOpen; }
     QString librarySearchQuery() const { return m_librarySearchQuery; }
     QString librarySearchScope() const { return m_librarySearchScope; }
+    QString libraryFocusColumn() const { return m_libraryFocusColumn; }
+    int selectedTrackIndex() const { return m_selectedTrackIndex; }
+    QString noticeText() const { return m_noticeText; }
+    QString noticeKind() const { return m_noticeKind; }
+    int noticeSerial() const { return m_noticeSerial; }
 
     Q_INVOKABLE void initialize();
     Q_INVOKABLE void saveOnExit();
@@ -92,16 +118,27 @@ public:
     Q_INVOKABLE void closeLibrarySearch();
     Q_INVOKABLE void setLibrarySearchQuery(const QString &query);
     Q_INVOKABLE void setLibrarySearchScope(const QString &scope);
+    Q_INVOKABLE void cycleLibrarySearchScope();
+    Q_INVOKABLE QString highlightSearchMatch(const QString &text, const QString &accentColor) const;
     Q_INVOKABLE void rescanLibrary();
     Q_INVOKABLE void showLibrary();
     Q_INVOKABLE void showPlaylists();
     Q_INVOKABLE void showSettings();
     Q_INVOKABLE void showImport();
+    Q_INVOKABLE void libraryMoveUp();
+    Q_INVOKABLE void libraryMoveDown();
+    Q_INVOKABLE void libraryMoveLeft();
+    Q_INVOKABLE void libraryMoveRight();
+    Q_INVOKABLE void setLibraryFocusColumn(const QString &column);
+    Q_INVOKABLE void setSelectedTrackIndex(int index);
+    Q_INVOKABLE void notify(const QString &text, const QString &kind = {});
     Q_INVOKABLE void selectPlaylist(const QString &name);
     Q_INVOKABLE void playPlaylistTrackIndex(int index);
     Q_INVOKABLE void playPlaylist();
     Q_INVOKABLE void createPlaylist(const QString &name);
     Q_INVOKABLE void deleteSelectedPlaylist();
+    Q_INVOKABLE void renameSelectedPlaylist(const QString &name);
+    Q_INVOKABLE void removePlaylistTrack(int index);
     Q_INVOKABLE void openTrackTagEditor(int index);
     Q_INVOKABLE void openAlbumTagEditor();
     Q_INVOKABLE void openArtistTagEditor();
@@ -111,9 +148,21 @@ public:
     Q_INVOKABLE void closeTagFetch();
     Q_INVOKABLE bool applyTagFetch(bool syncBeets);
     Q_INVOKABLE void fetchDiscogsForSelectedArtist();
-    Q_INVOKABLE void saveSettings(const QString &importInbox, const QString &beetsBinary,
+    Q_INVOKABLE void openDiscogsForSelectedAlbum();
+    Q_INVOKABLE void closeDiscogsForSelectedAlbum();
+    Q_INVOKABLE void fetchSelectedDiscogsAlbum();
+    Q_INVOKABLE void setAlbumDiscogsSelectedIndex(int index);
+    Q_INVOKABLE void saveSettings(const QString &libraryPaths, const QString &importInbox,
+                                  const QString &lyricsDir, const QString &beetsBinary,
                                   bool beetsNomove, const QString &discogsToken,
-                                  const QString &uiFontFamily = {});
+                                  const QString &uiFontFamily, int uiFontSize, bool scanOnLaunch,
+                                  bool wasdNavigation, bool tooltipsEnabled, bool lyricsNetease,
+                                  bool lyricsPlain);
+    Q_INVOKABLE void setDacPassthrough(bool enabled);
+    Q_INVOKABLE void fetchLyricsForPlayingTrack();
+    Q_INVOKABLE void fetchLyricsForTrackIndex(int index);
+    Q_INVOKABLE void fetchLyricsForAlbum(const QString &artist, const QString &album);
+    Q_INVOKABLE void fetchLyricsForArtist(const QString &artist);
 
 signals:
     void albumsChanged();
@@ -125,6 +174,9 @@ signals:
     void librarySearchChanged();
     void librarySearchOpenChanged();
     void librarySearchFocusRequested();
+    void libraryFocusChanged();
+    void noticeChanged();
+    void albumDiscogsChanged();
 
 private:
     void refreshArtists();
@@ -135,9 +187,11 @@ private:
     void reloadPlaylistsIfReady();
     void onTrackChanged();
     void onDiscogsArtistFetched(const QString &artistName, bool success);
+    void onDiscogsReleaseFetched(const QString &artist, const QString &album, bool success);
     void syncFetchedTagsToBeets(const QVariantMap &fields, const QString &libraryArtist,
                                 const QString &libraryAlbum);
     void clearLibrarySelection();
+    void selectAlbumDrillOut();
     void applyUiFont();
     void setTagEditor(bool open, const QString &mode, const QString &title,
                       const QVariantMap &fields, const QString &path = {});
@@ -156,11 +210,18 @@ private:
     DiscogsService *m_discogs = nullptr;
     BeetsService *m_beets = nullptr;
     ImportService *m_importInbox = nullptr;
+    LyricsService *m_lyrics = nullptr;
     MetadataSearchService *m_metadataSearch = nullptr;
 
     QStringList m_albums;
     QString m_selectedArtist;
     QString m_selectedAlbum;
+    QString m_selectedAlbumArtUrl;
+    QString m_selectedAlbumInfo;
+    bool m_nowPlayingFocused = false;
+    bool m_albumDiscogsOpen = false;
+    QVariantList m_albumDiscogsCandidates;
+    int m_albumDiscogsSelectedIndex = -1;
     QString m_mainView = QStringLiteral("library");
     bool m_pendingPlaylistReload = false;
 
@@ -174,4 +235,10 @@ private:
     bool m_librarySearchOpen = false;
     QString m_librarySearchQuery;
     QString m_librarySearchScope = QStringLiteral("artists");
+    QString m_libraryFocusColumn = QStringLiteral("artists");
+    int m_selectedTrackIndex = -1;
+    QString m_noticeText;
+    QString m_noticeKind;
+    int m_noticeSerial = 0;
+    bool m_scanToastArmed = false;
 };

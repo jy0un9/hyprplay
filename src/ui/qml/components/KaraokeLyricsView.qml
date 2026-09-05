@@ -1,5 +1,7 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
+import components 1.0
 
 Item {
     id: root
@@ -28,17 +30,20 @@ Item {
         onTriggered: root.jumped = false
     }
 
-    Label {
+    EmptyState {
         anchors.centerIn: parent
-        width: parent.width - 24
-        text: "No lyrics"
-        opacity: 0.4
-        font.pixelSize: 14
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.WordWrap
+        width: Math.min(parent.width - 24, 360)
+        iconName: "audio-x-generic-symbolic"
+        title: "No lyrics yet"
+        subtitle: App.lyrics.status.length > 0 ? App.lyrics.status : "Fetch synced lyrics for this track."
+        actionText: App.lyrics.busy ? "" : "Fetch lyrics"
+        loading: App.lyrics.busy
         visible: !media || media.lyricLines.length === 0
+        onActionClicked: {
+            if (playback && playback.currentPath.length > 0)
+                App.fetchLyricsForPlayingTrack()
+        }
     }
-
     ListView {
         id: lyricsList
         anchors.fill: parent
@@ -47,7 +52,7 @@ Item {
         interactive: true
         boundsBehavior: Flickable.StopAtBounds
         model: media ? media.lyricLines : []
-        spacing: 8
+        spacing: Theme.spaceSm
         highlightRangeMode: ListView.StrictlyEnforceRange
         preferredHighlightBegin: height * 0.42
         preferredHighlightEnd: height * 0.58

@@ -6,9 +6,12 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QQuickWindow>
+#include <QSettings>
 
 #include <clocale>
 #include <cstdio>
@@ -97,6 +100,7 @@ int main(int argc, char *argv[]) {
     QGuiApplication::setApplicationName(QStringLiteral("qt-music"));
     QGuiApplication::setOrganizationName(QStringLiteral("qt-music"));
     QGuiApplication::setDesktopFileName(QStringLiteral("qt-music"));
+    app.setWindowIcon(QIcon(QStringLiteral(":/qt-music.svg")));
 
     QQuickStyle::setStyle(QStringLiteral("Material"));
     setupSystemIconTheme();
@@ -105,7 +109,7 @@ int main(int argc, char *argv[]) {
     AppController controller;
     controller.initialize();
 
-    MprisPlayer mpris(controller.playback());
+    MprisPlayer mpris(controller.playback(), controller.nowPlaying());
     mpris.publish();
 
     QQmlApplicationEngine engine;
@@ -116,6 +120,30 @@ int main(int argc, char *argv[]) {
     engine.load(QUrl(QStringLiteral("qrc:/Main.qml")));
     if (engine.rootObjects().isEmpty()) {
         return 1;
+    }
+
+    QObject *window = engine.rootObjects().first();
+    if (auto *quickWindow = qobject_cast<QQuickWindow *>(window)) {
+        QSettings windowSettings;
+        const int x = windowSettings.value(QStringLiteral("window/x"), -1).toInt();
+        const int y = windowSettings.value(QStringLiteral("window/y"), -1).toInt();
+        const int width = windowSettings.value(QStringLiteral("window/width"), 0).toInt();
+        const int height = windowSettings.value(QStringLiteral("window/height"), 0).toInt();
+        if (width >= 1024 && height >= 640) {
+            quickWindow->setWidth(width);
+            quickWindow->setHeight(height);
+            if (x >= 0 && y >= 0) {
+                quickWindow->setX(x);
+                quickWindow->setY(y);
+            }
+        }
+        QObject::connect(&app, &QGuiApplication::aboutToQuit, quickWindow, [quickWindow]() {
+            QSettings settings;
+            settings.setValue(QStringLiteral("window/x"), quickWindow->x());
+            settings.setValue(QStringLiteral("window/y"), quickWindow->y());
+            settings.setValue(QStringLiteral("window/width"), quickWindow->width());
+            settings.setValue(QStringLiteral("window/height"), quickWindow->height());
+        });
     }
 
     QObject::connect(&app, &QGuiApplication::aboutToQuit, &controller, &AppController::saveOnExit);

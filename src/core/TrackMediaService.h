@@ -33,6 +33,7 @@ public:
 
     Q_INVOKABLE void loadForTrack(const QString &path, const QString &artist = {},
                                   const QString &album = {});
+    Q_INVOKABLE QString albumArtForTrack(const QString &path);
     Q_INVOKABLE void updateLyricPosition(double positionSecs);
     Q_INVOKABLE int lyricIndexForPosition(double positionSecs) const;
 

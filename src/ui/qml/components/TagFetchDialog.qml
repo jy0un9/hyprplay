@@ -17,7 +17,7 @@ Dialog {
     background: Rectangle {
         radius: Theme.radiusMd
         color: Theme.surface
-        border.color: Theme.rgba(Theme.border, 0.45)
+        border.color: Theme.rgba(Theme.border, 0.35)
         border.width: 1
     }
 
@@ -39,9 +39,8 @@ Dialog {
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             onClicked: tagFetchDialog.reject()
         }
-        Button {
+        PrimaryButton {
             text: "Apply selected tags"
-            highlighted: true
             enabled: App.metadataSearch.fieldChoices.length > 0 && !App.metadataSearch.searching
             onClicked: App.applyTagFetch(syncBeetsField.checked)
         }
@@ -92,7 +91,7 @@ Dialog {
                     Label {
                         text: modelData.detail || ""
                         opacity: 0.65
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                     }
@@ -147,7 +146,7 @@ Dialog {
             text: App.beets.status
             visible: App.beets.available && App.beets.status.length > 0
             opacity: 0.6
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontCaption
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }

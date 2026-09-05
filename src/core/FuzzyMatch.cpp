@@ -50,6 +50,45 @@ bool fuzzyMatch(const QString &text, const QString &query) {
     return fuzzyScore(text, query) >= 0;
 }
 
+QList<int> fuzzyMatchPositions(const QString &text, const QString &query) {
+    const QString hay = text.toLower();
+    const QString needle = query.trimmed().toLower();
+    QList<int> out;
+    if (needle.isEmpty() || hay.isEmpty() || text.isEmpty()) {
+        return out;
+    }
+    if (hay == needle) {
+        for (int i = 0; i < text.size(); ++i) {
+            out << i;
+        }
+        return out;
+    }
+    const int start = hay.startsWith(needle) ? 0 : hay.indexOf(needle);
+    if (start >= 0) {
+        for (int i = 0; i < needle.size() && start + i < text.size(); ++i) {
+            out << start + i;
+        }
+        return out;
+    }
+    int hayIndex = 0;
+    for (int n = 0; n < needle.size(); ++n) {
+        bool matched = false;
+        while (hayIndex < hay.size()) {
+            if (hay.at(hayIndex) == needle.at(n)) {
+                out << qMin(hayIndex, text.size() - 1);
+                ++hayIndex;
+                matched = true;
+                break;
+            }
+            ++hayIndex;
+        }
+        if (!matched) {
+            return {};
+        }
+    }
+    return out;
+}
+
 QStringList filterFuzzy(const QStringList &items, const QString &query) {
     const QString trimmed = query.trimmed();
     if (trimmed.isEmpty()) {

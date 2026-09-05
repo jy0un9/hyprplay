@@ -7,6 +7,7 @@ Item {
     property string name: ""
     property int size: 24
     property real opacityFactor: 1
+    property color iconColor: Theme.foreground
 
     implicitWidth: size
     implicitHeight: size
@@ -15,7 +16,7 @@ Item {
         anchors.centerIn: parent
         width: root.size
         height: root.size
-        source: root.name.length > 0 ? "image://themeicon/" + root.name + "?" + root.size : ""
+        source: root.name.length > 0 ? Theme.iconUrl(root.name, root.size, root.iconColor) : ""
         fillMode: Image.PreserveAspectFit
         opacity: root.opacityFactor
         cache: true

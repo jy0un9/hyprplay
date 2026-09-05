@@ -2,8 +2,12 @@
 
 #include "FuzzyMatch.h"
 
+#include <QColor>
 #include <QFont>
+#include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
+#include <QSet>
 
 AppController::AppController(QObject *parent) : QObject(parent) {
     m_config = new ConfigService(this);
@@ -16,6 +20,7 @@ AppController::AppController(QObject *parent) : QObject(parent) {
     m_discogs = new DiscogsService(m_config, this);
     m_beets = new BeetsService(m_config, this);
     m_importInbox = new ImportService(m_config, m_library, m_tags, m_beets, this);
+    m_lyrics = new LyricsService(m_config, this);
     m_metadataSearch = new MetadataSearchService(m_config, m_discogs, this);
     m_artists = new ArtistModel(this);
     m_tracks = new TrackListModel(this);
@@ -24,6 +29,20 @@ AppController::AppController(QObject *parent) : QObject(parent) {
 
     connect(m_library, &LibraryService::scanFinished, this, &AppController::refreshArtists);
     connect(m_library, &LibraryService::scanStatusChanged, this, &AppController::scanStatusChanged);
+    connect(m_library, &LibraryService::scanningChanged, this, [this]() {
+        if (m_library->scanning()) {
+            m_scanToastArmed = true;
+        }
+    });
+    connect(m_library, &LibraryService::scanFinished, this, [this](bool success) {
+        if (!m_scanToastArmed) {
+            return;
+        }
+        m_scanToastArmed = false;
+        notify(success ? QStringLiteral("Library scan complete")
+                       : QStringLiteral("Library scan failed"),
+               success ? QStringLiteral("success") : QStringLiteral("error"));
+    });
     connect(m_playback, &PlaybackService::trackChanged, this, &AppController::onTrackChanged);
     connect(m_playback, &PlaybackService::positionChanged, m_nowPlaying,
             [this]() {
@@ -37,19 +56,77 @@ AppController::AppController(QObject *parent) : QObject(parent) {
         reloadPlaylistsIfReady();
     });
     connect(m_discogs, &DiscogsService::artistFetched, this, &AppController::onDiscogsArtistFetched);
+    connect(m_discogs, &DiscogsService::releaseFetched, this,
+            &AppController::onDiscogsReleaseFetched);
+    connect(m_discogs, &DiscogsService::statusChanged, this, [this]() {
+        const QString status = m_discogs->status();
+        if (status.isEmpty() || m_discogs->busy()) {
+            return;
+        }
+        const QString lowered = status.toLower();
+        const bool isError = lowered.contains(QStringLiteral("fail"))
+                             || lowered.contains(QStringLiteral("error"))
+                             || lowered.contains(QStringLiteral("invalid"))
+                             || lowered.contains(QStringLiteral("unauthorized"))
+                             || lowered.contains(QStringLiteral("not found"));
+        if (isError) {
+            notify(QStringLiteral("Discogs: ") + status, QStringLiteral("error"));
+        }
+    });
+    connect(m_beets, &BeetsService::statusChanged, this, [this]() {
+        const QString status = m_beets->status();
+        if (status.isEmpty() || m_beets->busy()) {
+            return;
+        }
+        const QString lowered = status.toLower();
+        const bool isError = lowered.contains(QStringLiteral("fail"))
+                             || lowered.contains(QStringLiteral("error"))
+                             || lowered.contains(QStringLiteral("timed out"))
+                             || lowered.contains(QStringLiteral("not found"));
+        if (isError) {
+            notify(QStringLiteral("beets: ") + status, QStringLiteral("error"));
+        }
+    });
+    connect(m_lyrics, &LyricsService::busyChanged, this, [this]() {
+        if (m_lyrics->busy()) {
+            return;
+        }
+        const QString status = m_lyrics->status();
+        if (status.isEmpty()) {
+            return;
+        }
+        const QString lowered = status.toLower();
+        const bool isError =
+            lowered.contains(QStringLiteral("fail")) || lowered.contains(QStringLiteral("error"));
+        notify(status, isError ? QStringLiteral("error") : QStringLiteral("success"));
+    });
+    connect(m_importInbox, &ImportService::importFinished, this, [this](bool success) {
+        notify(success ? QStringLiteral("Import complete") : QStringLiteral("Import failed"),
+               success ? QStringLiteral("success") : QStringLiteral("error"));
+    });
     connect(m_tags, &TagService::tagsSaved, this, [this]() {
         refreshArtists();
         refreshTracks();
     });
+    connect(m_lyrics, &LyricsService::trackFetched, this,
+            [this](const QString &path, bool success) {
+                if (!success || path != m_playback->currentPath()) {
+                    return;
+                }
+                // Fresh .lrc landed for the playing track: reload lyrics.
+                m_nowPlaying->loadForTrack(path, m_playback->artist(), m_playback->album());
+            });
     connect(m_config, &ConfigService::configChanged, this, &AppController::applyUiFont);
 }
 
 void AppController::initialize() {
     m_config->load();
+    m_playback->setDacPassthrough(m_config->dacPassthrough());
     if (!m_playback->ensureMpv()) {
         qWarning("Audio engine failed to start — playback will not work until mpv initializes");
     }
     m_playback->setVolume(m_config->volume());
+    m_library->setScanOnLaunch(m_config->scanOnLaunch());
     m_library->ensureLibrary(m_config->libraryPaths());
     applyUiFont();
     refreshArtists();
@@ -114,14 +191,180 @@ void AppController::showImport() {
     m_importInbox->scanInbox();
 }
 
+void AppController::setLibraryFocusColumn(const QString &column) {
+    const QString normalized = column.trimmed().isEmpty() ? QStringLiteral("artists")
+                                                          : column.trimmed();
+    if (m_libraryFocusColumn == normalized) {
+        return;
+    }
+    m_libraryFocusColumn = normalized;
+    emit libraryFocusChanged();
+}
+
+void AppController::libraryMoveUp() {
+    if (m_mainView != QStringLiteral("library")) {
+        showLibrary();
+    }
+    if (m_libraryFocusColumn == QStringLiteral("tracks")) {
+        const int count = m_tracks->rowCount();
+        if (count == 0) {
+            return;
+        }
+        const int current = m_selectedTrackIndex >= 0 ? m_selectedTrackIndex : 0;
+        setSelectedTrackIndex((current - 1 + count) % count);
+        return;
+    }
+    if (m_libraryFocusColumn == QStringLiteral("albums")) {
+        const int count = m_albums.size();
+        if (count == 0) {
+            return;
+        }
+        int index = m_albums.indexOf(m_selectedAlbum);
+        index = index < 0 ? 0 : (index - 1 + count) % count;
+        selectAlbum(m_albums.at(index));
+        return;
+    }
+    const int count = m_artists->rowCount();
+    if (count == 0) {
+        return;
+    }
+    int index = 0;
+    if (!m_selectedArtist.isEmpty()) {
+        for (int i = 0; i < count; ++i) {
+            if (m_artists->artistAt(i) == m_selectedArtist) {
+                index = i;
+                break;
+            }
+        }
+        index = (index - 1 + count) % count;
+    }
+    selectArtist(m_artists->artistAt(index));
+}
+
+void AppController::libraryMoveDown() {
+    if (m_mainView != QStringLiteral("library")) {
+        showLibrary();
+    }
+    if (m_libraryFocusColumn == QStringLiteral("tracks")) {
+        const int count = m_tracks->rowCount();
+        if (count == 0) {
+            return;
+        }
+        const int current = m_selectedTrackIndex >= 0 ? m_selectedTrackIndex : -1;
+        setSelectedTrackIndex((current + 1) % count);
+        return;
+    }
+    if (m_libraryFocusColumn == QStringLiteral("albums")) {
+        const int count = m_albums.size();
+        if (count == 0) {
+            return;
+        }
+        int index = m_albums.indexOf(m_selectedAlbum);
+        index = index < 0 ? 0 : (index + 1) % count;
+        selectAlbum(m_albums.at(index));
+        return;
+    }
+    const int count = m_artists->rowCount();
+    if (count == 0) {
+        return;
+    }
+    int index = 0;
+    if (!m_selectedArtist.isEmpty()) {
+        for (int i = 0; i < count; ++i) {
+            if (m_artists->artistAt(i) == m_selectedArtist) {
+                index = i;
+                break;
+            }
+        }
+        index = (index + 1) % count;
+    }
+    selectArtist(m_artists->artistAt(index));
+}
+
+void AppController::libraryMoveLeft() {
+    if (m_mainView != QStringLiteral("library")) {
+        showLibrary();
+        return;
+    }
+    if (m_libraryFocusColumn == QStringLiteral("tracks")) {
+        if (!m_albums.isEmpty()) {
+            m_libraryFocusColumn = QStringLiteral("albums");
+            emit libraryFocusChanged();
+        } else {
+            m_libraryFocusColumn = QStringLiteral("artists");
+            emit libraryFocusChanged();
+        }
+        return;
+    }
+    if (m_libraryFocusColumn == QStringLiteral("albums")) {
+        m_libraryFocusColumn = QStringLiteral("artists");
+        emit libraryFocusChanged();
+        return;
+    }
+    if (!m_selectedAlbum.isEmpty()) {
+        selectAlbumDrillOut();
+    } else if (!m_selectedArtist.isEmpty()) {
+        clearLibrarySelection();
+    }
+}
+
+void AppController::libraryMoveRight() {
+    if (m_mainView != QStringLiteral("library")) {
+        showLibrary();
+        return;
+    }
+    if (m_libraryFocusColumn == QStringLiteral("tracks")) {
+        if (m_selectedTrackIndex >= 0 && m_selectedTrackIndex < m_tracks->rowCount()) {
+            playTrackIndex(m_selectedTrackIndex);
+        }
+        return;
+    }
+    if (m_libraryFocusColumn == QStringLiteral("artists")) {
+        if (!m_albums.isEmpty()) {
+            m_libraryFocusColumn = QStringLiteral("albums");
+            emit libraryFocusChanged();
+            if (m_selectedAlbum.isEmpty()) {
+                selectAlbum(m_albums.first());
+            }
+        } else if (m_tracks->rowCount() > 0) {
+            m_libraryFocusColumn = QStringLiteral("tracks");
+            emit libraryFocusChanged();
+            if (m_selectedTrackIndex < 0) {
+                setSelectedTrackIndex(0);
+            }
+        }
+        return;
+    }
+    if (m_libraryFocusColumn == QStringLiteral("albums") && m_tracks->rowCount() > 0) {
+        m_libraryFocusColumn = QStringLiteral("tracks");
+        emit libraryFocusChanged();
+        if (m_selectedTrackIndex < 0) {
+            setSelectedTrackIndex(0);
+        }
+    }
+}
+
 void AppController::clearLibrarySelection() {
     m_selectedArtist.clear();
     m_selectedAlbum.clear();
+    m_selectedAlbumArtUrl.clear();
+    m_selectedAlbumInfo.clear();
     m_albums.clear();
+    m_selectedTrackIndex = -1;
     m_tracks->setTracks({});
     m_selectedArtistMedia->clearMedia();
     emit albumsChanged();
     emit selectionChanged();
+}
+
+void AppController::selectAlbumDrillOut() {
+    m_selectedAlbum.clear();
+    m_selectedAlbumArtUrl.clear();
+    m_selectedAlbumInfo.clear();
+    m_nowPlayingFocused = false;
+    m_tracks->setTracks({});
+    emit selectionChanged();
+    refreshTracks();
 }
 
 void AppController::refreshArtists() {
@@ -146,10 +389,21 @@ void AppController::refreshPlaylistTracks() {
 
 void AppController::selectArtist(const QString &artist) {
     if (m_selectedArtist == artist) {
+        if (m_nowPlayingFocused) {
+            m_nowPlayingFocused = false;
+            emit selectionChanged();
+        }
         return;
     }
     m_selectedArtist = artist;
     m_selectedAlbum.clear();
+    m_selectedAlbumArtUrl.clear();
+    m_nowPlayingFocused = false;
+    m_selectedTrackIndex = -1;
+    if (m_libraryFocusColumn != QStringLiteral("artists")) {
+        m_libraryFocusColumn = QStringLiteral("artists");
+        emit libraryFocusChanged();
+    }
     emit selectionChanged();
     refreshAlbums();
     m_tracks->setTracks({});
@@ -160,9 +414,30 @@ void AppController::selectArtist(const QString &artist) {
 
 void AppController::selectAlbum(const QString &album) {
     if (m_selectedAlbum == album) {
+        if (m_nowPlayingFocused) {
+            m_nowPlayingFocused = false;
+            emit selectionChanged();
+        }
         return;
     }
     m_selectedAlbum = album;
+    m_nowPlayingFocused = false;
+    m_selectedTrackIndex = -1;
+    if (m_libraryFocusColumn != QStringLiteral("albums")) {
+        m_libraryFocusColumn = QStringLiteral("albums");
+        emit libraryFocusChanged();
+    }
+    const QVariantList albumTracks = m_library->tracksForAlbum(m_selectedArtist, album);
+    m_selectedAlbumArtUrl.clear();
+    m_selectedAlbumInfo.clear();
+    if (!albumTracks.isEmpty()) {
+        const QString trackPath =
+            albumTracks.first().toMap().value(QStringLiteral("path")).toString();
+        m_selectedAlbumArtUrl = m_nowPlaying->albumArtForTrack(trackPath);
+        QFile infoFile(QFileInfo(trackPath).absolutePath() + QStringLiteral("/album-info.txt"));
+        if (infoFile.open(QIODevice::ReadOnly | QIODevice::Text))
+            m_selectedAlbumInfo = QString::fromUtf8(infoFile.readAll()).trimmed();
+    }
     emit selectionChanged();
     refreshTracks();
 }
@@ -199,6 +474,30 @@ void AppController::refreshTracks() {
         tracks = m_library->tracksForAlbum(m_selectedArtist, m_selectedAlbum);
     }
     m_tracks->setTracks(tracks);
+    if (m_selectedTrackIndex >= m_tracks->rowCount()) {
+        m_selectedTrackIndex = m_tracks->rowCount() > 0 ? 0 : -1;
+        emit selectionChanged();
+    }
+}
+
+void AppController::setSelectedTrackIndex(int index) {
+    const int bounded = m_tracks->rowCount() > 0 ? qBound(0, index, m_tracks->rowCount() - 1) : -1;
+    if (m_selectedTrackIndex == bounded) {
+        return;
+    }
+    m_selectedTrackIndex = bounded;
+    emit selectionChanged();
+}
+
+void AppController::notify(const QString &text, const QString &kind) {
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
+        return;
+    }
+    m_noticeText = trimmed;
+    m_noticeKind = kind.trimmed().isEmpty() ? QStringLiteral("info") : kind.trimmed();
+    ++m_noticeSerial;
+    emit noticeChanged();
 }
 
 void AppController::playTrackIndex(int index) {
@@ -206,6 +505,9 @@ void AppController::playTrackIndex(int index) {
     if (track.isEmpty()) {
         return;
     }
+    m_nowPlayingFocused = true;
+    m_selectedTrackIndex = index;
+    emit selectionChanged();
 
     QVariantList queue;
     for (int i = 0; i < m_tracks->rowCount(); ++i) {
@@ -236,6 +538,8 @@ void AppController::playPlaylistTrackIndex(int index) {
     if (queue.isEmpty()) {
         return;
     }
+    m_nowPlayingFocused = true;
+    emit selectionChanged();
     m_playback->playTracks(queue, startIndex);
 }
 
@@ -258,6 +562,8 @@ void AppController::playAlbum() {
         refreshTracks();
     }
     if (m_tracks->rowCount() > 0) {
+        m_nowPlayingFocused = true;
+        emit selectionChanged();
         playTrackIndex(0);
     }
 }
@@ -316,6 +622,45 @@ void AppController::setLibrarySearchScope(const QString &scope) {
     }
 }
 
+void AppController::cycleLibrarySearchScope() {
+    static const QStringList order = {QStringLiteral("artists"), QStringLiteral("albums"),
+                                      QStringLiteral("tracks")};
+    const int current = qMax(0, order.indexOf(m_librarySearchScope));
+    setLibrarySearchScope(order.at((current + 1) % order.size()));
+    if (!m_librarySearchOpen) {
+        openLibrarySearch();
+    } else {
+        emit librarySearchFocusRequested();
+    }
+}
+
+QString AppController::highlightSearchMatch(const QString &text,
+                                            const QString &accentColor) const {
+    QColor accent(accentColor);
+    if (!accent.isValid()) {
+        accent = QColor(QStringLiteral("#7aa2f7"));
+    }
+    if (!m_librarySearchOpen || m_librarySearchQuery.trimmed().isEmpty()) {
+        return text.toHtmlEscaped();
+    }
+    const QList<int> positions = fuzzyMatchPositions(text, m_librarySearchQuery);
+    if (positions.isEmpty()) {
+        return text.toHtmlEscaped();
+    }
+    QSet<int> matched(positions.begin(), positions.end());
+    QString out;
+    out.reserve(text.size() * 2);
+    for (int i = 0; i < text.size(); ++i) {
+        if (matched.contains(i)) {
+            out += QStringLiteral("<font color=\"%1\"><b>%2</b></font>")
+                       .arg(accent.name(), QString(text.at(i)).toHtmlEscaped());
+        } else {
+            out += QString(text.at(i)).toHtmlEscaped();
+        }
+    }
+    return out;
+}
+
 void AppController::createPlaylist(const QString &name) {
     if (m_playlists->createPlaylist(name)) {
         refreshPlaylistItems();
@@ -328,6 +673,28 @@ void AppController::deleteSelectedPlaylist() {
         return;
     }
     if (m_playlists->deletePlaylist(name)) {
+        refreshPlaylistItems();
+        refreshPlaylistTracks();
+    }
+}
+
+void AppController::renameSelectedPlaylist(const QString &name) {
+    const QString oldName = m_playlists->selectedPlaylist();
+    if (oldName.isEmpty()) {
+        return;
+    }
+    if (m_playlists->renamePlaylist(oldName, name)) {
+        refreshPlaylistItems();
+        refreshPlaylistTracks();
+    }
+}
+
+void AppController::removePlaylistTrack(int index) {
+    const QString playlistName = m_playlists->selectedPlaylist();
+    if (playlistName.isEmpty()) {
+        return;
+    }
+    if (m_playlists->removeTrackFromPlaylist(playlistName, index)) {
         refreshPlaylistItems();
         refreshPlaylistTracks();
     }
@@ -572,6 +939,51 @@ void AppController::fetchDiscogsForSelectedArtist() {
     m_discogs->fetchArtist(m_selectedArtist, folder);
 }
 
+void AppController::openDiscogsForSelectedAlbum() {
+    if (m_selectedArtist.isEmpty() || m_selectedAlbum.isEmpty()) {
+        return;
+    }
+    m_albumDiscogsCandidates = m_discogs->searchReleases(m_selectedArtist, m_selectedAlbum);
+    m_albumDiscogsSelectedIndex =
+        m_albumDiscogsCandidates.isEmpty() ? -1 : 0;
+    m_albumDiscogsOpen = true;
+    emit albumDiscogsChanged();
+}
+
+void AppController::closeDiscogsForSelectedAlbum() {
+    if (!m_albumDiscogsOpen) {
+        return;
+    }
+    m_albumDiscogsOpen = false;
+    emit albumDiscogsChanged();
+}
+
+void AppController::setAlbumDiscogsSelectedIndex(int index) {
+    const int bounded = qBound(-1, index, m_albumDiscogsCandidates.size() - 1);
+    if (m_albumDiscogsSelectedIndex == bounded) {
+        return;
+    }
+    m_albumDiscogsSelectedIndex = bounded;
+    emit albumDiscogsChanged();
+}
+
+void AppController::fetchSelectedDiscogsAlbum() {
+    if (m_albumDiscogsSelectedIndex < 0
+        || m_albumDiscogsSelectedIndex >= m_albumDiscogsCandidates.size()) {
+        return;
+    }
+    const QVariantMap candidate =
+        m_albumDiscogsCandidates.at(m_albumDiscogsSelectedIndex).toMap();
+    const QVariantList tracks = m_library->tracksForAlbum(m_selectedArtist, m_selectedAlbum);
+    if (tracks.isEmpty()) {
+        return;
+    }
+    const QString folder =
+        QFileInfo(tracks.first().toMap().value(QStringLiteral("path")).toString()).absolutePath();
+    m_discogs->fetchRelease(m_selectedArtist, m_selectedAlbum, folder,
+                            candidate.value(QStringLiteral("id")).toULongLong());
+}
+
 void AppController::onDiscogsArtistFetched(const QString &artistName, bool success) {
     if (!success || artistName != m_selectedArtist) {
         return;
@@ -580,24 +992,111 @@ void AppController::onDiscogsArtistFetched(const QString &artistName, bool succe
     m_selectedArtistMedia->loadForArtist(artistName, samplePath);
 }
 
+void AppController::onDiscogsReleaseFetched(const QString &artist, const QString &album,
+                                             bool success) {
+    if (success && artist == m_selectedArtist && album == m_selectedAlbum) {
+        const QVariantList tracks = m_library->tracksForAlbum(artist, album);
+        if (!tracks.isEmpty()) {
+            m_selectedAlbumArtUrl =
+                m_nowPlaying->albumArtForTrack(tracks.first().toMap()
+                                                   .value(QStringLiteral("path")).toString());
+            QFile infoFile(QFileInfo(tracks.first().toMap().value(QStringLiteral("path"))
+                                         .toString()).absolutePath()
+                           + QStringLiteral("/album-info.txt"));
+            if (infoFile.open(QIODevice::ReadOnly | QIODevice::Text))
+                m_selectedAlbumInfo = QString::fromUtf8(infoFile.readAll()).trimmed();
+        }
+        emit selectionChanged();
+    }
+    closeDiscogsForSelectedAlbum();
+}
+
 void AppController::applyUiFont() {
     QFont font = QGuiApplication::font();
     font.setFamily(m_config->uiFontFamily());
     QGuiApplication::setFont(font);
 }
 
-void AppController::saveSettings(const QString &importInbox, const QString &beetsBinary,
+void AppController::saveSettings(const QString &libraryPaths, const QString &importInbox,
+                                   const QString &lyricsDir, const QString &beetsBinary,
                                    bool beetsNomove, const QString &discogsToken,
-                                   const QString &uiFontFamily) {
+                                   const QString &uiFontFamily, int uiFontSize, bool scanOnLaunch,
+                                   bool wasdNavigation, bool tooltipsEnabled, bool lyricsNetease,
+                                   bool lyricsPlain) {
+    m_config->setLibraryPaths(libraryPaths);
     m_config->setImportInbox(importInbox);
+    m_config->setLyricsDir(lyricsDir);
     m_config->setBeetsBinary(beetsBinary);
     m_config->setBeetsNomove(beetsNomove);
     if (!uiFontFamily.trimmed().isEmpty()) {
         m_config->setUiFontFamily(uiFontFamily.trimmed());
     }
+    m_config->setUiFontSize(uiFontSize);
+    m_config->setScanOnLaunch(scanOnLaunch);
+    m_config->setWasdNavigation(wasdNavigation);
+    m_config->setTooltipsEnabled(tooltipsEnabled);
+    m_config->setLyricsNeteaseEnabled(lyricsNetease);
+    m_config->setLyricsPlainEnabled(lyricsPlain);
     if (!discogsToken.trimmed().isEmpty()) {
         m_discogs->setToken(discogsToken.trimmed());
     }
     m_config->save();
     applyUiFont();
+    m_library->setScanOnLaunch(m_config->scanOnLaunch());
+    m_library->ensureLibrary(m_config->libraryPaths());
+    refreshArtists();
+    reloadPlaylistsIfReady();
+    notify(QStringLiteral("Settings saved"), QStringLiteral("success"));
+}
+
+void AppController::setDacPassthrough(bool enabled) {
+    m_config->setDacPassthrough(enabled);
+    m_playback->setDacPassthrough(enabled);
+    if (enabled) {
+        m_config->setVolume(100);
+    }
+    m_config->save();
+}
+
+void AppController::fetchLyricsForPlayingTrack() {
+    const QString path = m_playback->currentPath();
+    if (path.isEmpty()) {
+        return;
+    }
+    QVariantMap track;
+    track.insert(QStringLiteral("path"), path);
+    track.insert(QStringLiteral("artist"), m_playback->artist());
+    track.insert(QStringLiteral("title"), m_playback->title());
+    track.insert(QStringLiteral("album"), m_playback->album());
+    m_lyrics->fetchForTrack(track);
+}
+
+void AppController::fetchLyricsForTrackIndex(int index) {
+    const QVariantMap track = m_tracks->trackAt(index);
+    if (track.isEmpty() || track.value(QStringLiteral("path")).toString().isEmpty()) {
+        return;
+    }
+    m_lyrics->fetchForTrack(track);
+}
+
+void AppController::fetchLyricsForAlbum(const QString &artist, const QString &album) {
+    if (artist.isEmpty() || album.isEmpty()) {
+        return;
+    }
+    const QVariantList tracks = m_library->tracksForAlbum(artist, album);
+    if (tracks.isEmpty()) {
+        return;
+    }
+    m_lyrics->fetchForTracks(tracks);
+}
+
+void AppController::fetchLyricsForArtist(const QString &artist) {
+    if (artist.isEmpty()) {
+        return;
+    }
+    const QVariantList tracks = m_library->tracksForArtist(artist);
+    if (tracks.isEmpty()) {
+        return;
+    }
+    m_lyrics->fetchForTracks(tracks);
 }

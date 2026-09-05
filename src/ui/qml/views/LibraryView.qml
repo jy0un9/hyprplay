@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import components 1.0
 
 Pane {
     id: libraryView
@@ -9,6 +10,24 @@ Pane {
     function applyLayout() {
         artistsPane.paneWidth = App.config.layoutLibraryArtistsWidth
         albumsPane.applyWidth()
+    }
+
+    function currentTrackIndex() {
+        if (App.selectedTrackIndex >= 0 && App.selectedTrackIndex < App.tracks.count)
+            return App.selectedTrackIndex
+        for (let i = 0; i < App.tracks.count; i++) {
+            const track = App.tracks.trackAt(i)
+            if (track.path === App.playback.currentPath && track.path.length > 0)
+                return i
+        }
+        return 0
+    }
+
+    function playSelected() {
+        if (App.tracks.count > 0)
+            App.playTrackIndex(Math.max(0, currentTrackIndex()))
+        else
+            App.playAlbum()
     }
 
     function persistLayout() {
@@ -24,19 +43,27 @@ Pane {
         function onSelectedArtistChanged() {
             albumsPane.applyWidth()
         }
+        function onSelectionChanged() {
+            if (App.selectedTrackIndex >= 0 && App.selectedTrackIndex < trackList.count)
+                trackList.positionViewAtIndex(App.selectedTrackIndex, ListView.Contain)
+            for (let i = 0; i < artistList.count; i++) {
+                if (App.artists.artistAt(i) === App.selectedArtist) {
+                    artistList.positionViewAtIndex(i, ListView.Contain)
+                    break
+                }
+            }
+            if (App.selectedAlbum.length > 0) {
+                for (let j = 0; j < albumList.count; j++) {
+                    if (albumList.model[j] === App.selectedAlbum) {
+                        albumList.positionViewAtIndex(j, ListView.Contain)
+                        break
+                    }
+                }
+            }
+        }
     }
 
     background: Rectangle { color: Theme.background }
-
-    function stripeColor(rowIndex, highlighted, hovered) {
-        if (highlighted)
-            return Theme.rgba(Theme.accent, 0.18)
-        if (hovered)
-            return Theme.rgba(Theme.selection, 0.7)
-        if (rowIndex % 2 === 1)
-            return Theme.rgba(Theme.selection, 0.22)
-        return "transparent"
-    }
 
     Menu {
         id: artistContextMenu
@@ -58,6 +85,15 @@ Pane {
                 App.fetchDiscogsForSelectedArtist()
             }
         }
+        MenuSeparator {}
+        MenuItem {
+            text: App.lyrics.busy ? "Fetching lyrics…" : "Fetch lyrics for all tracks"
+            enabled: !App.lyrics.busy
+            onTriggered: {
+                App.selectArtist(artistContextMenu.artistName)
+                App.fetchLyricsForArtist(artistContextMenu.artistName)
+            }
+        }
     }
 
     Menu {
@@ -71,6 +107,23 @@ Pane {
                 App.openAlbumTagEditor()
             }
         }
+        MenuItem {
+            text: App.discogs.busy ? "Fetching from Discogs…" : "Fetch album info from Discogs"
+            enabled: !App.discogs.busy
+            onTriggered: {
+                App.selectAlbum(albumContextMenu.albumName)
+                App.openDiscogsForSelectedAlbum()
+            }
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: App.lyrics.busy ? "Fetching lyrics…" : "Fetch lyrics for album"
+            enabled: !App.lyrics.busy
+            onTriggered: {
+                App.selectAlbum(albumContextMenu.albumName)
+                App.fetchLyricsForAlbum(App.selectedArtist, albumContextMenu.albumName)
+            }
+        }
     }
 
     Menu {
@@ -81,18 +134,11 @@ Pane {
             text: "Edit tags"
             onTriggered: App.openTrackTagEditor(trackContextMenu.trackIndex)
         }
-    }
-
-    component ListDelegate: ItemDelegate {
-        id: listDelegate
-        property int rowIndex: 0
-        property int itemRadius: 4
-
-        background: Rectangle {
-            radius: listDelegate.itemRadius
-            color: libraryView.stripeColor(listDelegate.rowIndex,
-                                           listDelegate.highlighted,
-                                           listDelegate.hovered)
+        MenuSeparator {}
+        MenuItem {
+            text: App.lyrics.busy ? "Fetching lyrics…" : "Fetch lyrics"
+            enabled: !App.lyrics.busy
+            onTriggered: App.fetchLyricsForTrackIndex(trackContextMenu.trackIndex)
         }
     }
 
@@ -110,17 +156,9 @@ Pane {
         anchors.topMargin: libraryView.searchReservedHeight
         orientation: Qt.Horizontal
 
-            handle: Rectangle {
-                implicitWidth: 5
-                color: libSplitHover.hovered ? Theme.rgba(Theme.accent, 0.55) : Theme.rgba(Theme.border, 0.35)
-                HoverHandler { id: libSplitHover }
-
-                MouseArea {
-                    anchors.fill: parent
-                    propagateComposedEvents: true
-                    onPressed: (mouse) => mouse.accepted = false
-                    onReleased: libraryView.persistLayout()
-                }
+            handle: SplitHandle {
+                orientation: Qt.Horizontal
+                onReleased: libraryView.persistLayout()
             }
 
             Item {
@@ -131,29 +169,74 @@ Pane {
                 SplitView.maximumWidth: 420
 
                 HoverHandler {
-                    onHoveredChanged: if (hovered) App.setLibrarySearchScope("artists")
+                    onHoveredChanged: {
+                        if (hovered) {
+                            App.setLibrarySearchScope("artists")
+                            App.setLibraryFocusColumn("artists")
+                        }
+                    }
                 }
 
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: 8
+                    spacing: Theme.spaceSm
 
                     Label {
                         text: "Artists"
                         font.bold: true
                         color: Theme.foreground
-                        Layout.leftMargin: 12
-                        Layout.topMargin: 12
+                        Layout.leftMargin: Theme.spaceMd
+                        Layout.topMargin: Theme.spaceMd
                     }
 
                     Label {
-                        text: "Press / to search"
-                        font.pixelSize: 11
+                        text: searchCountText()
+                        font.pixelSize: Theme.fontCaption
+                        opacity: 0.6
+                        color: Theme.accent
+                        Layout.leftMargin: Theme.spaceMd
+                        Layout.rightMargin: Theme.spaceMd
+                        visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
+                                 && App.librarySearchScope === "artists"
+                    }
+
+                    Label {
+                        text: "Press / to search · Tab switches scope"
+                        font.pixelSize: Theme.fontCaption
                         opacity: 0.45
                         color: Theme.foreground
-                        Layout.leftMargin: 12
-                        Layout.rightMargin: 12
+                        Layout.leftMargin: Theme.spaceMd
+                        Layout.rightMargin: Theme.spaceMd
                         visible: !App.librarySearchOpen
+                    }
+
+                    Label {
+                        text: App.lyrics.status
+                        font.pixelSize: Theme.fontCaption
+                        color: Theme.foreground
+                        opacity: 0.75
+                        wrapMode: Text.WordWrap
+                        Layout.leftMargin: Theme.spaceMd
+                        Layout.rightMargin: Theme.spaceMd
+                        Layout.fillWidth: true
+                        visible: App.lyrics.status.length > 0
+                    }
+
+                    ProgressBar {
+                        Layout.leftMargin: Theme.spaceMd
+                        Layout.rightMargin: Theme.spaceMd
+                        Layout.fillWidth: true
+                        from: 0
+                        to: Math.max(1, App.lyrics.total)
+                        value: App.lyrics.progress
+                        visible: App.lyrics.busy
+                    }
+
+                    ToolButton {
+                        text: "Cancel lyrics fetch"
+                        Layout.leftMargin: Theme.spaceMd
+                        visible: App.lyrics.busy
+                        onClicked: App.lyrics.cancel()
                     }
 
                     ListView {
@@ -163,12 +246,16 @@ Pane {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         model: App.artists
+                        visible: count > 0 || App.library.scanning
 
-                        delegate: ListDelegate {
+                        delegate: AppListDelegate {
                             width: artistList.width
-                            rowIndex: index
                             text: model.name
+                            searchHighlight: App.librarySearchOpen
+                                             && App.librarySearchScope === "artists"
                             highlighted: App.selectedArtist === model.name
+                            accented: App.libraryFocusColumn === "artists"
+                                      && App.selectedArtist === model.name
                             onClicked: App.selectArtist(model.name)
 
                             TapHandler {
@@ -179,6 +266,18 @@ Pane {
                                 }
                             }
                         }
+                    }
+
+                    EmptyState {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        iconName: "folder-music-symbolic"
+                        title: "No music found"
+                        subtitle: "Set your Music folder in Settings, then rescan."
+                        actionText: "Open Settings"
+                        loading: App.library.scanning
+                        visible: artistList.count === 0 && !App.library.scanning
+                        onActionClicked: App.showSettings()
                     }
                 }
             }
@@ -196,12 +295,17 @@ Pane {
                 SplitView.maximumWidth: App.selectedArtist.length > 0 ? 420 : 0
 
                 HoverHandler {
-                    onHoveredChanged: if (hovered) App.setLibrarySearchScope("albums")
+                    onHoveredChanged: {
+                        if (hovered) {
+                            App.setLibrarySearchScope("albums")
+                            App.setLibraryFocusColumn("albums")
+                        }
+                    }
                 }
 
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: 8
+                    spacing: Theme.spaceSm
                     visible: App.selectedArtist.length > 0
 
                     Label {
@@ -210,9 +314,20 @@ Pane {
                         color: Theme.foreground
                         elide: Text.ElideRight
                         Layout.fillWidth: true
-                        Layout.leftMargin: 12
-                        Layout.topMargin: 12
-                        Layout.rightMargin: 12
+                        Layout.leftMargin: Theme.spaceMd
+                        Layout.topMargin: Theme.spaceMd
+                        Layout.rightMargin: Theme.spaceMd
+                    }
+
+                    Label {
+                        text: searchCountText()
+                        font.pixelSize: Theme.fontCaption
+                        opacity: 0.6
+                        color: Theme.accent
+                        Layout.leftMargin: Theme.spaceMd
+                        Layout.rightMargin: Theme.spaceMd
+                        visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
+                                 && App.librarySearchScope === "albums"
                     }
 
                     ListView {
@@ -223,11 +338,14 @@ Pane {
                         boundsBehavior: Flickable.StopAtBounds
                         model: App.albums
 
-                        delegate: ListDelegate {
+                        delegate: AppListDelegate {
                             width: albumList.width
-                            rowIndex: index
                             text: modelData
+                            searchHighlight: App.librarySearchOpen
+                                             && App.librarySearchScope === "albums"
                             highlighted: App.selectedAlbum === modelData
+                            accented: App.libraryFocusColumn === "albums"
+                                      && App.selectedAlbum === modelData
                             onClicked: App.selectAlbum(modelData)
 
                             TapHandler {
@@ -240,7 +358,6 @@ Pane {
                             TapHandler {
                                 acceptedButtons: Qt.LeftButton
                                 onDoubleTapped: {
-                                    App.selectAlbum(modelData)
                                     App.playAlbum()
                                 }
                             }
@@ -254,25 +371,44 @@ Pane {
                 SplitView.minimumWidth: 240
 
                 HoverHandler {
-                    onHoveredChanged: if (hovered) App.setLibrarySearchScope("tracks")
+                    onHoveredChanged: {
+                        if (hovered) {
+                            App.setLibrarySearchScope("tracks")
+                            App.setLibraryFocusColumn("tracks")
+                        }
+                    }
                 }
 
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: 8
+                    spacing: Theme.spaceSm
 
-                    Label {
-                        text: App.selectedAlbum.length > 0 ? App.selectedAlbum : "Tracks"
-                        font.pixelSize: 17
-                        font.bold: true
-                        color: Theme.foreground
-                        elide: Text.ElideRight
+                    RowLayout {
                         Layout.fillWidth: true
-                        Layout.topMargin: 12
-                        Layout.leftMargin: 12
-                        Layout.rightMargin: 12
+                        Layout.topMargin: Theme.spaceMd
+                        Layout.leftMargin: Theme.spaceMd
+                        Layout.rightMargin: Theme.spaceMd
+                        spacing: Theme.spaceSm
                         visible: App.selectedAlbum.length > 0
                                   || (App.librarySearchOpen && App.librarySearchScope === "tracks")
+
+                        Image {
+                            Layout.preferredWidth: 44
+                            Layout.preferredHeight: 44
+                            fillMode: Image.PreserveAspectCrop
+                            source: App.selectedAlbumArtUrl
+                            visible: source.length > 0
+                            cache: true
+                        }
+
+                        Label {
+                            text: App.selectedAlbum.length > 0 ? App.selectedAlbum : "Tracks"
+                            font.pixelSize: Theme.fontHeading
+                            font.bold: true
+                            color: Theme.foreground
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
                     }
 
                     Label {
@@ -280,9 +416,20 @@ Pane {
                         opacity: 0.45
                         color: Theme.foreground
                         Layout.alignment: Qt.AlignHCenter
-                        Layout.topMargin: 24
+                        Layout.topMargin: Theme.spaceXl
                         visible: App.selectedAlbum.length === 0
                                   && !(App.librarySearchOpen && App.librarySearchScope === "tracks")
+                    }
+
+                    Label {
+                        text: searchCountText()
+                        font.pixelSize: Theme.fontCaption
+                        opacity: 0.6
+                        color: Theme.accent
+                        Layout.leftMargin: Theme.spaceMd
+                        Layout.rightMargin: Theme.spaceMd
+                        visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
+                                 && App.librarySearchScope === "tracks"
                     }
 
                     ListView {
@@ -292,39 +439,66 @@ Pane {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         model: App.tracks
+                        currentIndex: App.selectedTrackIndex
 
-                        delegate: ItemDelegate {
+                        onCountChanged: {
+                            if (App.selectedTrackIndex >= 0)
+                                positionViewAtIndex(App.selectedTrackIndex, ListView.Contain)
+                        }
+
+                        delegate: AppListDelegate {
                             id: trackDelegate
                             width: trackList.width
-
-                            background: Rectangle {
-                                color: libraryView.stripeColor(index,
-                                                                 false,
-                                                                 trackDelegate.hovered)
+                            text: model.title
+                            searchHighlight: App.librarySearchOpen
+                                             && App.librarySearchScope === "tracks"
+                            highlighted: index === App.selectedTrackIndex
+                            accented: App.libraryFocusColumn === "tracks"
+                                      && index === App.selectedTrackIndex
+                            onClicked: {
+                                App.setLibraryFocusColumn("tracks")
+                                App.setSelectedTrackIndex(index)
+                                App.playTrackIndex(index)
                             }
 
                             contentItem: RowLayout {
-                                spacing: 8
+                                spacing: Theme.spaceSm
+
                                 Label {
                                     text: model.trackNumber > 0 ? model.trackNumber : index + 1
-                                    opacity: 0.55
+                                    opacity: (App.playback.currentPath === model.path
+                                              || index === App.selectedTrackIndex) ? 1 : 0.55
                                     color: Theme.foreground
                                     Layout.preferredWidth: 28
                                 }
+
                                 Label {
-                                    text: model.title
-                                    Layout.fillWidth: true
-                                    elide: Text.ElideRight
+                                    text: trackDelegate.searchHighlight
+                                          ? App.highlightSearchMatch(model.title, Theme.accent)
+                                          : model.title
+                                    textFormat: trackDelegate.searchHighlight ? Text.RichText : Text.PlainText
+                                    font: trackDelegate.font
                                     color: Theme.foreground
+                                    opacity: trackDelegate.enabled
+                                             ? (trackDelegate.highlighted ? 1 : 0.92) : 0.45
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
                                 }
+
+                                Label {
+                                    text: "▶"
+                                    visible: App.playback.currentPath === model.path
+                                             && App.playback.currentPath.length > 0
+                                    color: Theme.accent
+                                    font.pixelSize: Theme.fontSmall
+                                }
+
                                 Label {
                                     text: formatDuration(model.durationMs)
                                     opacity: 0.55
                                     color: Theme.foreground
                                 }
                             }
-
-                            onClicked: App.playTrackIndex(index)
 
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
@@ -349,7 +523,7 @@ Pane {
         anchors.leftMargin: libraryView.searchInset
         anchors.rightMargin: libraryView.searchInset
         anchors.topMargin: libraryView.searchInset
-        implicitHeight: searchRow.implicitHeight + 16
+        implicitHeight: searchRow.implicitHeight + Theme.spaceSm * 2
         height: implicitHeight
 
         Rectangle {
@@ -362,23 +536,48 @@ Pane {
             RowLayout {
                 id: searchRow
                 anchors.fill: parent
-                anchors.margins: 8
-                spacing: 8
+                anchors.margins: Theme.spaceSm
+                spacing: Theme.spaceSm
 
                 Rectangle {
-                    Layout.preferredWidth: scopeBadge.implicitWidth + 12
-                    Layout.preferredHeight: scopeBadge.implicitHeight + 8
-                    radius: 4
-                    color: Theme.rgba(Theme.accent, 0.12)
+                    Layout.preferredWidth: scopeBadge.implicitWidth + Theme.spaceMd
+                    Layout.preferredHeight: scopeBadge.implicitHeight + Theme.spaceSm
+                    radius: Theme.radiusSm
+                    color: scopeMouse.containsMouse || scopeMouse.pressed
+                           ? Theme.rgba(Theme.accent, 0.22)
+                           : Theme.rgba(Theme.accent, 0.12)
+
+                    Behavior on color { ColorAnimation { duration: 120 } }
 
                     Label {
                         id: scopeBadge
                         anchors.centerIn: parent
-                        text: scopeHint()
-                        font.pixelSize: 11
+                        text: scopeHint() + " ▾"
+                        font.pixelSize: Theme.fontCaption
                         font.bold: true
                         color: Theme.accent
                     }
+
+                    ToolTip.visible: App.config.tooltipsEnabled && scopeMouse.containsMouse
+                    ToolTip.text: "Click or press Tab to switch scope (" + scopeHint() + " → "
+                                  + nextScopeHint() + ")"
+
+                    MouseArea {
+                        id: scopeMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: App.cycleLibrarySearchScope()
+                    }
+                }
+
+                Label {
+                    Layout.alignment: Qt.AlignVCenter
+                    text: searchCountText()
+                    font.pixelSize: Theme.fontCaption
+                    color: Theme.accent
+                    opacity: 0.85
+                    visible: text.length > 0
                 }
 
                 TextField {
@@ -394,6 +593,10 @@ Pane {
                     Keys.onEscapePressed: function(event) {
                         event.accepted = true
                         App.closeLibrarySearch()
+                    }
+                    Keys.onTabPressed: function(event) {
+                        event.accepted = true
+                        App.cycleLibrarySearchScope()
                     }
                 }
 
@@ -429,9 +632,9 @@ Pane {
 
     function searchPlaceholder() {
         switch (App.librarySearchScope) {
-        case "albums": return "Search albums…"
-        case "tracks": return "Search tracks…"
-        default: return "Search artists…"
+        case "albums": return "Search albums…  (Tab: tracks)"
+        case "tracks": return "Search tracks…  (Tab: artists)"
+        default: return "Search artists…  (Tab: albums)"
         }
     }
 
@@ -441,6 +644,27 @@ Pane {
         case "tracks": return "Tracks"
         default: return "Artists"
         }
+    }
+
+    function nextScopeHint() {
+        switch (App.librarySearchScope) {
+        case "artists": return "Albums"
+        case "albums": return "Tracks"
+        default: return "Artists"
+        }
+    }
+
+    function searchCountText() {
+        if (!App.librarySearchOpen || App.librarySearchQuery.trimmed().length === 0)
+            return ""
+        var n = 0
+        if (App.librarySearchScope === "albums")
+            n = albumList.count
+        else if (App.librarySearchScope === "tracks")
+            n = trackList.count
+        else
+            n = artistList.count
+        return n === 1 ? "1 match" : n + " matches"
     }
 
     function formatDuration(ms) {

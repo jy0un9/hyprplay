@@ -62,10 +62,40 @@ bool PlaybackService::initMpv() {
     mpv_set_option_string(m_mpv, "force-window", "no");
     mpv_set_option_string(m_mpv, "video", "no");
     mpv_set_option_string(m_mpv, "vo", "null");
-    mpv_set_option_string(m_mpv, "ao", "pipewire,pulse,alsa");
+
+    if (m_dacPassthrough) {
+        // DAC passthrough: minimize DSP so a USB DAC receives the source
+        // rate/format. ALSA first for direct hw access (falls back to
+        // PipeWire when PipeWire holds the device). Samplerate/format "0"/"no"
+        // means follow-the-source on mpv 0.41 (verified via --list-options).
+        if (m_volume != 100) {
+            m_volume = 100;
+            emit volumeChanged();
+        }
+        mpv_set_option_string(m_mpv, "ao", "alsa,pipewire,pulse");
+        mpv_set_option_string(m_mpv, "audio-exclusive", "yes");
+        mpv_set_option_string(m_mpv, "audio-stream-silence", "no");
+        mpv_set_option_string(m_mpv, "audio-wait-open", "2");
+        mpv_set_option_string(m_mpv, "audio-buffer", "0.2");
+        mpv_set_option_string(m_mpv, "gapless-audio", "yes");
+        mpv_set_option_string(m_mpv, "audio-samplerate", "0");
+        mpv_set_option_string(m_mpv, "audio-format", "no");
+        mpv_set_option_string(m_mpv, "audio-channels", "auto");
+        mpv_set_option_string(m_mpv, "replaygain", "no");
+        mpv_set_option_string(m_mpv, "volume-max", "100");
+    } else {
+        // Native backends only: if these fail we want a loud error, not a
+        // silent fallback to the ALSA shim (which mixers can't attribute to
+        // this app, breaking per-app volume).
+        mpv_set_option_string(m_mpv, "ao", "pipewire,pulse");
+        mpv_set_option_string(m_mpv, "audio-stream-silence", "yes");
+        mpv_set_option_string(m_mpv, "gapless-audio", "weak");
+        mpv_set_option_string(m_mpv, "replaygain", "no");
+    }
     mpv_set_option_string(m_mpv, "keep-open", "yes");
     mpv_set_option_string(m_mpv, "idle", "yes");
     mpv_set_option_string(m_mpv, "pause", "no");
+    mpv_set_option_string(m_mpv, "audio-client-name", "qt-music");
 
     const int initErr = mpv_initialize(m_mpv);
     if (initErr < 0) {
@@ -81,9 +111,11 @@ bool PlaybackService::initMpv() {
     mpv_observe_property(m_mpv, 0, "duration", MPV_FORMAT_DOUBLE);
     mpv_observe_property(m_mpv, 0, "pause", MPV_FORMAT_FLAG);
     mpv_observe_property(m_mpv, 0, "idle-active", MPV_FORMAT_FLAG);
+    mpv_observe_property(m_mpv, 0, "eof-reached", MPV_FORMAT_FLAG);
 
     m_error.clear();
     setVolume(m_volume);
+    refreshAudioBackend();
     return true;
 }
 
@@ -92,6 +124,10 @@ void PlaybackService::shutdownMpv() {
     if (m_mpv) {
         mpv_terminate_destroy(m_mpv);
         m_mpv = nullptr;
+    }
+    if (!m_audioBackend.isEmpty()) {
+        m_audioBackend.clear();
+        emit audioBackendChanged();
     }
 }
 
@@ -142,6 +178,8 @@ void PlaybackService::handleMpvEvent(mpv_event *event) {
                 m_paused = flag != 0;
                 m_playing = !m_paused && !m_currentPath.isEmpty();
                 emit playbackChanged();
+            } else if (qstrcmp(prop->name, "eof-reached") == 0 && flag != 0) {
+                m_trackEndedPending = true;
             }
         }
     } else if (event->event_id == MPV_EVENT_COMMAND_REPLY) {
@@ -282,8 +320,13 @@ void PlaybackService::loadCurrentQueueTrack() {
     mpv_set_property_string(m_mpv, "pause", "no");
     mpv_set_property_string(m_mpv, "vid", "no");
 
+    m_paused = false;
+    m_playing = true;
+
     processMpvEvents();
     syncFromMpv();
+    refreshAudioBackend();
+    emit playbackChanged();
 }
 
 void PlaybackService::togglePlayPause() {
@@ -389,6 +432,10 @@ void PlaybackService::seekRelative(double delta) {
 }
 
 void PlaybackService::setVolume(int volume) {
+    if (m_dacPassthrough) {
+        // Bit-perfect: no digital attenuation, DAC knob controls level.
+        volume = 100;
+    }
     volume = qBound(0, volume, 100);
     m_volume = volume;
     if (m_mpv) {
@@ -415,6 +462,67 @@ void PlaybackService::setRepeatMode(int mode) {
 void PlaybackService::setShuffle(bool enabled) {
     m_shuffle = enabled;
     emit shuffleChanged();
+}
+
+void PlaybackService::refreshAudioBackend() {
+    QString backend;
+    if (m_mpv) {
+        char *ao = mpv_get_property_string(m_mpv, "current-ao");
+        char *device = mpv_get_property_string(m_mpv, "audio-device");
+        const QString aoStr = ao ? QString::fromUtf8(ao) : QString();
+        const QString deviceStr = device ? QString::fromUtf8(device) : QString();
+        mpv_free(ao);
+        mpv_free(device);
+        if (!aoStr.isEmpty() && aoStr != QStringLiteral("null")) {
+            backend = aoStr;
+            if (!deviceStr.isEmpty() && deviceStr != QStringLiteral("auto")) {
+                backend += QStringLiteral(" · ") + deviceStr;
+            }
+        }
+    }
+    if (m_audioBackend == backend) {
+        return;
+    }
+    m_audioBackend = backend;
+    emit audioBackendChanged();
+}
+
+void PlaybackService::setDacPassthrough(bool enabled) {
+    if (m_dacPassthrough == enabled) {
+        return;
+    }
+    m_dacPassthrough = enabled;
+    emit dacPassthroughChanged();
+
+    if (!m_mpv) {
+        // Engine not started yet; initMpv() will apply the mode.
+        return;
+    }
+
+    // ao/exclusive require an engine restart. Preserve queue + position.
+    const bool hadTrack = !m_currentPath.isEmpty() && m_queueIndex >= 0
+        && m_queueIndex < m_queue.size();
+    const double resumePos = m_position;
+    const bool wasPlaying = m_playing && !m_paused;
+
+    shutdownMpv();
+    m_pollTimer.start(16);
+    if (!initMpv()) {
+        m_error = QStringLiteral("Audio engine restart failed after DAC toggle");
+        emit playbackChanged();
+        return;
+    }
+    setVolume(m_volume);
+
+    if (hadTrack) {
+        loadCurrentQueueTrack();
+        if (resumePos > 1.0) {
+            seek(resumePos);
+        }
+        if (!wasPlaying) {
+            pause();
+        }
+    }
 }
 
 void PlaybackService::handleMprisPlay() { play(); }

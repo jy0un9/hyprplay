@@ -16,6 +16,7 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     Q_INVOKABLE void setArtists(const QStringList &artists);
+    Q_INVOKABLE QString artistAt(int index) const;
 
 signals:
     void countChanged();

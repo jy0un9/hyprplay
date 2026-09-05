@@ -439,6 +439,42 @@ void TrackMediaService::loadAlbumArt(const QString &path, const QString &album) 
     Q_UNUSED(album);
 }
 
+QString TrackMediaService::albumArtForTrack(const QString &path) {
+    if (path.isEmpty()) {
+        return {};
+    }
+
+    const QString resolvedPath = path.startsWith(QStringLiteral("file:"))
+                                     ? QUrl(path).toLocalFile()
+                                     : path;
+    const QString absolutePath = QFileInfo(resolvedPath).absoluteFilePath();
+    if (!QFileInfo::exists(absolutePath)) {
+        return {};
+    }
+    const QString key = cacheKeyForPath(absolutePath);
+    for (const QString &ext : {QStringLiteral(".jpg"), QStringLiteral(".png"),
+                               QStringLiteral(".webp")}) {
+        const QString cached = artCacheDir() + QLatin1Char('/') + key + ext;
+        if (QFile::exists(cached)) {
+            return QUrl::fromLocalFile(cached).toString();
+        }
+    }
+
+    QString artUrl;
+    const QString lower = absolutePath.toLower();
+    if (lower.endsWith(QStringLiteral(".flac"))) {
+        artUrl = extractFlacArt(absolutePath, key);
+    } else if (lower.endsWith(QStringLiteral(".opus"))) {
+        artUrl = extractOpusArt(absolutePath, key);
+    }
+    if (!artUrl.isEmpty()) {
+        return artUrl;
+    }
+
+    const QString folderArt = findFolderArt(absolutePath);
+    return folderArt.isEmpty() ? QString() : QUrl::fromLocalFile(folderArt).toString();
+}
+
 QString TrackMediaService::findFolderArt(const QString &trackPath) {
     const QDir dir = QFileInfo(trackPath).dir();
     for (const QString &name :
@@ -476,6 +512,25 @@ void TrackMediaService::loadLyrics(const QString &path, const QString &artist,
             timedOnly[i].time = timedOnly[i - 1].time + 0.001;
         }
     }
+    if (timedOnly.isEmpty()) {
+        // Plain (untimed) lyrics, e.g. a .txt fallback: show every line
+        // statically. Timings stay empty so there is no karaoke highlight.
+        m_lyricLines.clear();
+        m_lyricTimes.clear();
+        QStringList staticLines;
+        for (const TimedLine &line : m_timedLines) {
+            if (line.text.isEmpty()) {
+                continue;
+            }
+            m_lyricLines.append(line.text);
+            staticLines << line.text;
+        }
+        m_timedLines.clear();
+        m_lyricsText = staticLines.join(QLatin1Char('\n'));
+        m_currentLyricIndex = -1;
+        m_lastLyricSyncPos = -1.0;
+        return;
+    }
     for (const TimedLine &line : timedOnly) {
         m_lyricLines.append(line.text);
         m_lyricTimes.append(line.time);
@@ -488,10 +543,16 @@ void TrackMediaService::loadLyrics(const QString &path, const QString &artist,
 }
 
 QString TrackMediaService::findLyricsFile(const QString &path, const QString &artist,
-                                          const QString &album) const {
+                                           const QString &album) const {
     const QFileInfo track(path);
     const QString base = track.absolutePath() + QLatin1Char('/') + track.completeBaseName();
-    for (const QString &ext : {QStringLiteral(".lrc"), QStringLiteral(".txt")}) {
+    QStringList exts{QStringLiteral(".lrc")};
+    // Plain (.txt) sidecars are only considered when plain-text lyrics are
+    // enabled; synced-only users never see unsynced lyrics.
+    if (!m_config || m_config->lyricsPlainEnabled()) {
+        exts << QStringLiteral(".txt");
+    }
+    for (const QString &ext : exts) {
         const QString sidecar = base + ext;
         if (QFile::exists(sidecar)) {
             return sidecar;
@@ -521,14 +582,14 @@ QString TrackMediaService::findLyricsFile(const QString &path, const QString &ar
         if (!QDir(root).exists()) {
             continue;
         }
-        for (const QString &ext : {QStringLiteral(".lrc"), QStringLiteral(".txt")}) {
+        for (const QString &ext : exts) {
             const QString flat = root + QLatin1Char('/') + track.completeBaseName() + ext;
             if (QFile::exists(flat)) {
                 return flat;
             }
         }
         if (!artist.isEmpty() && !album.isEmpty()) {
-            for (const QString &ext : {QStringLiteral(".lrc"), QStringLiteral(".txt")}) {
+            for (const QString &ext : exts) {
                 const QString nested =
                     root + QLatin1Char('/') + artist + QLatin1Char('/') + album + QLatin1Char('/')
                     + track.completeBaseName() + ext;

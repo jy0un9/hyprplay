@@ -15,6 +15,8 @@
 #include <QStandardPaths>
 #include <QUrl>
 
+#include <algorithm>
+
 namespace {
 
 constexpr char kUserAgent[] = "qt-music/0.1 +local";
@@ -145,6 +147,58 @@ QVariantList DiscogsService::searchArtists(const QString &query) const {
     return results;
 }
 
+QVariantList DiscogsService::searchReleases(const QString &artist, const QString &album) const {
+    QVariantList results;
+    const QString token = loadToken();
+    if (token.isEmpty() || artist.trimmed().isEmpty() || album.trimmed().isEmpty()) {
+        return results;
+    }
+
+    QNetworkAccessManager manager;
+    const QUrl url(QString::fromUtf8(kApiBase) + QStringLiteral("/database/search?q=")
+                   + QUrl::toPercentEncoding(artist.trimmed() + QStringLiteral(" ")
+                                              + album.trimmed())
+                   + QStringLiteral("&type=release&per_page=10"));
+    QNetworkReply *reply = manager.get(discogsRequest(url, token));
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    if (reply->error() != QNetworkReply::NoError) {
+        reply->deleteLater();
+        return results;
+    }
+
+    const QJsonArray items = QJsonDocument::fromJson(reply->readAll())
+                                 .object().value(QStringLiteral("results")).toArray();
+    reply->deleteLater();
+    for (const QJsonValue &value : items) {
+        const QJsonObject item = value.toObject();
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), item.value(QStringLiteral("id")).toVariant());
+        row.insert(QStringLiteral("title"), item.value(QStringLiteral("title")).toString());
+        row.insert(QStringLiteral("year"), item.value(QStringLiteral("year")).toInt());
+        QStringList labels;
+        for (const QJsonValue &label : item.value(QStringLiteral("label")).toArray())
+            labels << label.toString();
+        row.insert(QStringLiteral("label"), labels.join(QStringLiteral(", ")));
+        QStringList formats;
+        for (const QJsonValue &format : item.value(QStringLiteral("format")).toArray())
+            formats << format.toString();
+        const bool isCd = std::any_of(formats.cbegin(), formats.cend(),
+                                      [](const QString &format) {
+                                          return format.compare(QStringLiteral("CD"),
+                                                                Qt::CaseInsensitive) == 0;
+                                      });
+        if (!isCd) {
+            continue;
+        }
+        row.insert(QStringLiteral("format"), formats.join(QStringLiteral(", ")));
+        row.insert(QStringLiteral("country"), item.value(QStringLiteral("country")).toString());
+        results << row;
+    }
+    return results;
+}
+
 void DiscogsService::fetchArtist(const QString &artistName, const QString &artistFolder,
                                  quint64 discogsId) {
     if (artistName.isEmpty() || artistFolder.isEmpty()) {
@@ -180,6 +234,105 @@ void DiscogsService::fetchArtist(const QString &artistName, const QString &artis
     setStatus(ok ? QStringLiteral("Saved Discogs profile for %1").arg(artistName)
                  : QStringLiteral("Discogs fetch failed"));
     emit artistFetched(artistName, ok);
+}
+
+void DiscogsService::fetchRelease(const QString &artist, const QString &album,
+                                  const QString &albumFolder, quint64 releaseId) {
+    if (artist.isEmpty() || album.isEmpty() || albumFolder.isEmpty() || releaseId == 0) {
+        setStatus(QStringLiteral("No album selected"));
+        emit releaseFetched(artist, album, false);
+        return;
+    }
+    const QString token = loadToken();
+    if (token.isEmpty()) {
+        setStatus(QStringLiteral("Discogs token not configured — add it in Settings"));
+        emit releaseFetched(artist, album, false);
+        return;
+    }
+
+    setBusy(true);
+    setStatus(QStringLiteral("Fetching %1 from Discogs…").arg(album));
+    const bool ok = fetchReleaseById(releaseId, artist, album, albumFolder);
+    setBusy(false);
+    setStatus(ok ? QStringLiteral("Saved Discogs album information for %1").arg(album)
+                 : QStringLiteral("Discogs album fetch failed"));
+    emit releaseFetched(artist, album, ok);
+}
+
+bool DiscogsService::fetchReleaseById(quint64 id, const QString &artist,
+                                      const QString &album, const QString &albumFolder) {
+    QNetworkAccessManager manager;
+    const QUrl url(QString::fromUtf8(kApiBase) + QStringLiteral("/releases/")
+                   + QString::number(id));
+    QNetworkReply *reply = manager.get(discogsRequest(url, loadToken()));
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    if (reply->error() != QNetworkReply::NoError) {
+        reply->deleteLater();
+        return false;
+    }
+    const QJsonObject release = QJsonDocument::fromJson(reply->readAll()).object();
+    reply->deleteLater();
+
+    QStringList text;
+    text << release.value(QStringLiteral("title")).toString();
+    const int year = release.value(QStringLiteral("year")).toInt();
+    if (year > 0) text << QStringLiteral("Year: %1").arg(year);
+    const QJsonArray labels = release.value(QStringLiteral("labels")).toArray();
+    if (!labels.isEmpty()) {
+        QStringList names;
+        for (const QJsonValue &value : labels)
+            names << value.toObject().value(QStringLiteral("name")).toString();
+        text << QStringLiteral("Label: %1").arg(names.join(QStringLiteral(", ")));
+    }
+    QStringList genres;
+    for (const QJsonValue &genre : release.value(QStringLiteral("genres")).toArray())
+        genres << genre.toString();
+    if (!genres.isEmpty()) text << QStringLiteral("Genres: %1").arg(genres.join(QStringLiteral(", ")));
+    const QString notes = stripBbCode(release.value(QStringLiteral("notes")).toString());
+    if (!notes.isEmpty()) text << QString() << notes;
+    const QJsonArray tracklist = release.value(QStringLiteral("tracklist")).toArray();
+    if (!tracklist.isEmpty()) {
+        text << QString() << QStringLiteral("Tracklist");
+        for (const QJsonValue &value : tracklist) {
+            const QJsonObject track = value.toObject();
+            text << QStringLiteral("%1. %2").arg(track.value(QStringLiteral("position")).toString(),
+                                                  track.value(QStringLiteral("title")).toString());
+        }
+    }
+    QFile infoFile(albumFolder + QStringLiteral("/album-info.txt"));
+    if (!infoFile.open(QIODevice::WriteOnly | QIODevice::Text))
+        return false;
+    infoFile.write(text.join(QLatin1Char('\n')).toUtf8());
+    infoFile.close();
+
+    const QJsonArray images = release.value(QStringLiteral("images")).toArray();
+    QString imageUrl;
+    for (const QJsonValue &value : images) {
+        if (value.toObject().value(QStringLiteral("type")).toString() == QStringLiteral("primary")) {
+            imageUrl = value.toObject().value(QStringLiteral("uri")).toString();
+            break;
+        }
+    }
+    if (imageUrl.isEmpty() && !images.isEmpty())
+        imageUrl = images.first().toObject().value(QStringLiteral("uri")).toString();
+    if (!imageUrl.isEmpty()) {
+        QNetworkReply *imageReply = manager.get(QNetworkRequest(QUrl(imageUrl)));
+        QObject::connect(imageReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        if (imageReply->error() == QNetworkReply::NoError) {
+            QFile imageFile(albumFolder + QStringLiteral("/album.jpg"));
+            if (imageFile.open(QIODevice::WriteOnly)) {
+                imageFile.write(imageReply->readAll());
+                imageFile.close();
+            }
+        }
+        imageReply->deleteLater();
+    }
+    Q_UNUSED(artist);
+    Q_UNUSED(album);
+    return true;
 }
 
 bool DiscogsService::fetchArtistById(quint64 id, const QString &artistName,

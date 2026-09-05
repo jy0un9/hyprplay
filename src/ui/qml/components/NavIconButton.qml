@@ -6,11 +6,12 @@ Button {
     id: control
 
     property string iconName: ""
+    property color iconColor: Theme.foreground
 
     display: AbstractButton.TextBesideIcon
 
     contentItem: RowLayout {
-        spacing: 8
+        spacing: Theme.spaceSm
         leftPadding: control.leftPadding
         rightPadding: control.rightPadding
 
@@ -19,7 +20,7 @@ Button {
             Layout.preferredWidth: 18
             Layout.preferredHeight: 18
             source: control.iconName.length > 0
-                    ? "image://themeicon/" + control.iconName + "?18"
+                    ? Theme.iconUrl(control.iconName, 18, control.iconColor)
                     : ""
             fillMode: Image.PreserveAspectFit
             cache: true

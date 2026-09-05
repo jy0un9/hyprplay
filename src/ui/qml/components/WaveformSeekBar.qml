@@ -8,6 +8,15 @@ Control {
     property var playback: App.playback
     property var media: App.nowPlaying
     property bool dragging: false
+    property real hoverX: -1
+    property real dragRatio: -1
+
+    readonly property real displayRatio: root.dragRatio >= 0 ? root.dragRatio : root.progressRatio
+    readonly property real hoverRatio: {
+        if (hoverX < 0 || canvas.width <= 0)
+            return -1
+        return Math.max(0, Math.min(1, hoverX / canvas.width))
+    }
 
     readonly property real progressRatio: {
         if (!playback || playback.duration <= 0)
@@ -15,9 +24,11 @@ Control {
         return Math.max(0, Math.min(1, playback.position / playback.duration))
     }
 
-    readonly property color barPlayed: Theme.accent
-    readonly property color barUnplayed: Theme.rgba(Theme.accent, 0.28)
-    readonly property color trackBg: Theme.rgba(Theme.selection, 0.65)
+    readonly property bool isPaused: playback ? playback.paused : false
+
+    readonly property color barPlayed: isPaused ? Theme.muted : Theme.accent
+    readonly property color barUnplayed: isPaused ? Theme.rgba(Theme.muted, 0.45) : Theme.rgba(Theme.accent, 0.28)
+    readonly property color trackBg: isPaused ? Theme.rgba(Theme.selection, 0.5) : Theme.rgba(Theme.selection, 0.65)
 
     background: Rectangle {
         radius: Theme.radiusSm
@@ -47,7 +58,7 @@ Control {
                 const mid = height / 2
                 const peaks = media ? media.waveformPeaks : []
                 const count = peaks.length
-                const playedX = width * root.progressRatio
+                const playedX = width * root.displayRatio
                 const maxAmp = height * 0.5 - 1
 
                 if (count > 0) {
@@ -73,35 +84,76 @@ Control {
 
                 ctx.fillStyle = root.barPlayed
                 ctx.fillRect(Math.max(0, playedX - 1), 0, 2, height)
+
+                if (!root.dragging && root.hoverRatio >= 0) {
+                    const hx = root.hoverRatio * width
+                    ctx.fillStyle = Theme.foreground
+                    ctx.globalAlpha = 0.6
+                    ctx.fillRect(hx - 0.5, 0, 1, height)
+                    ctx.globalAlpha = 1
+                }
             }
         }
 
         MouseArea {
+            id: seekMouse
             anchors.fill: parent
-            onPressed: (mouse) => {
-                dragging = true
-                seekAt(mouse.x)
-            }
+            hoverEnabled: true
             onPositionChanged: (mouse) => {
+                root.hoverX = mouse.x
                 if (dragging)
                     seekAt(mouse.x)
+            }
+            onExited: root.hoverX = -1
+            onPressed: (mouse) => {
+                dragging = true
+                root.dragRatio = root.clampRatio(mouse.x / canvas.width)
+                seekAt(mouse.x)
             }
             onReleased: (mouse) => {
                 if (dragging) {
                     seekAt(mouse.x)
                     dragging = false
+                    root.dragRatio = -1
                 }
             }
         }
+
+        Label {
+            visible: seekMouse.containsMouse && !root.dragging && root.hoverRatio >= 0
+                     && playback && playback.duration > 0
+            text: root.formatTime(root.hoverRatio * (playback ? playback.duration : 0))
+            color: Theme.foreground
+            font.pixelSize: Theme.fontCaption
+            background: null
+            x: Math.max(0, Math.min(parent.width - width, root.hoverX - width / 2))
+            y: -height - 2
+        }
+    }
+
+    function clampRatio(ratio) {
+        return Math.max(0, Math.min(1, ratio))
     }
 
     function seekAt(x) {
         if (!playback || playback.duration <= 0 || canvas.width <= 0)
             return
-        const ratio = Math.max(0, Math.min(1, x / canvas.width))
-        playback.seek(ratio * playback.duration)
+        root.dragRatio = root.clampRatio(x / canvas.width)
+        playback.seek(root.dragRatio * playback.duration)
         canvas.requestPaint()
     }
+
+    function formatTime(secs) {
+        if (!secs || secs < 0) return "0:00"
+        var total = Math.floor(secs)
+        var min = Math.floor(total / 60)
+        var sec = total % 60
+        return min + ":" + (sec < 10 ? "0" : "") + sec
+    }
+
+    onHoverXChanged: canvas.requestPaint()
+    onDragRatioChanged: canvas.requestPaint()
+    onDisplayRatioChanged: canvas.requestPaint()
 
     Connections {
         target: playback
@@ -111,6 +163,8 @@ Control {
         }
         function onPlaybackChanged() { canvas.requestPaint() }
     }
+
+    onIsPausedChanged: canvas.requestPaint()
 
     Connections {
         target: media

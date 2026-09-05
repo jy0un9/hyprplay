@@ -4,13 +4,16 @@
 #include <QDBusObjectPath>
 #include <QObject>
 
-class PlaybackService;
+#include "core/PlaybackService.h"
+
+class TrackMediaService;
 
 class MprisPlayer : public QObject {
     Q_OBJECT
 
 public:
-    explicit MprisPlayer(PlaybackService *playback, QObject *parent = nullptr);
+    explicit MprisPlayer(PlaybackService *playback, TrackMediaService *media,
+                         QObject *parent = nullptr);
 
     void publish();
 
@@ -21,6 +24,7 @@ private:
     void updatePlaybackStatus();
 
     PlaybackService *m_playback = nullptr;
+    TrackMediaService *m_media = nullptr;
     QString m_serviceName;
     bool m_registered = false;
 };
@@ -68,9 +72,19 @@ class MprisPlayerAdaptor : public QDBusAbstractAdaptor {
     Q_PROPERTY(QVariantMap Metadata READ metadata NOTIFY metadataChanged)
     Q_PROPERTY(double Volume READ volume WRITE setVolume)
     Q_PROPERTY(QStringList SupportedMimeTypes READ supportedMimeTypes)
+    Q_PROPERTY(bool CanGoNext READ canGoNext)
+    Q_PROPERTY(bool CanGoPrevious READ canGoPrevious)
+    Q_PROPERTY(bool CanPlay READ canPlay)
+    Q_PROPERTY(bool CanPause READ canPause)
+    Q_PROPERTY(bool CanSeek READ canSeek)
+    Q_PROPERTY(bool CanControl READ canControl)
+    Q_PROPERTY(double MinimumRate READ minimumRate)
+    Q_PROPERTY(double MaximumRate READ maximumRate)
+    Q_PROPERTY(qlonglong Position READ position)
 
 public:
-    explicit MprisPlayerAdaptor(MprisPlayer *player, PlaybackService *playback);
+    explicit MprisPlayerAdaptor(MprisPlayer *player, PlaybackService *playback,
+                                TrackMediaService *media);
 
     QString playbackStatus() const;
     QVariantMap metadata() const;
@@ -78,6 +92,17 @@ public:
     void setVolume(double volume);
     QStringList supportedMimeTypes() const {
         return {QStringLiteral("audio/flac"), QStringLiteral("audio/opus")};
+    }
+    bool canGoNext() const { return hasTrack(); }
+    bool canGoPrevious() const { return hasTrack(); }
+    bool canPlay() const { return true; }
+    bool canPause() const { return hasTrack(); }
+    bool canSeek() const { return hasTrack(); }
+    bool canControl() const { return true; }
+    double minimumRate() const { return 1.0; }
+    double maximumRate() const { return 1.0; }
+    qlonglong position() const {
+        return static_cast<qlonglong>(m_playback->position() * 1'000'000);
     }
 
 public slots:
@@ -90,11 +115,23 @@ public slots:
     void Seek(double offset);
     void SetPosition(const QDBusObjectPath &trackId, double position);
 
+    void notifyMetadataChanged();
+    void notifyPlaybackStatusChanged();
+
 signals:
     void playbackStatusChanged();
     void metadataChanged();
+    void Seeked(qlonglong position);
+    void positionChangedInternally();
 
 private:
+    bool hasTrack() const { return !m_playback->currentPath().isEmpty(); }
+    qlonglong currentPositionMicros() const;
+    void emitSeeked();
+    static void emitPropertiesChanged(const QString &interfaceName, const QVariantMap &changed);
+
     MprisPlayer *m_player = nullptr;
     PlaybackService *m_playback = nullptr;
+    TrackMediaService *m_media = nullptr;
+    int m_trackSerial = 0;
 };

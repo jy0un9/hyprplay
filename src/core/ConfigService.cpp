@@ -124,6 +124,9 @@ void ConfigService::load() {
                 if (!pathList.isEmpty()) {
                     m_libraryPaths = pathList;
                 }
+            } else if (key == QLatin1String("scan_on_launch")) {
+                m_scanOnLaunch =
+                    value != QLatin1String("false") && value != QLatin1String("0");
             } else if (key == QLatin1String("lyrics_dir")) {
                 m_lyricsDir = unquote(value);
             } else if (key == QLatin1String("import_inbox")) {
@@ -140,6 +143,9 @@ void ConfigService::load() {
                 m_playback.seekStepSecs = value.toInt();
             } else if (key == QLatin1String("lyrics_offset_ms")) {
                 m_playback.lyricsOffsetMs = value.toInt();
+            } else if (key == QLatin1String("dac_passthrough")) {
+                m_playback.dacPassthrough =
+                    value == QLatin1String("true") || value == QLatin1String("1");
             }
         } else if (section == QLatin1String("beets")) {
             if (key == QLatin1String("binary")) {
@@ -150,6 +156,28 @@ void ConfigService::load() {
         } else if (section == QLatin1String("ui")) {
             if (key == QLatin1String("font_family")) {
                 m_uiFontFamily = unquote(value);
+            } else if (key == QLatin1String("font_size")) {
+                m_uiFontSize = qBound(9, value.toInt(), 24);
+            } else if (key == QLatin1String("wasd_navigation")) {
+                m_wasdNavigation =
+                    value == QLatin1String("true") || value == QLatin1String("1");
+            } else if (key == QLatin1String("tooltips_enabled")) {
+                m_tooltipsEnabled =
+                    value != QLatin1String("false") && value != QLatin1String("0");
+            }
+        } else if (section == QLatin1String("lyrics")) {
+            if (key == QLatin1String("fetch_interval_secs")) {
+                m_lyrics.fetchIntervalSecs = qBound(1, value.toInt(), 60);
+            } else if (key == QLatin1String("negative_cache_days")) {
+                m_lyrics.negativeCacheDays = qBound(0, value.toInt(), 365);
+            } else if (key == QLatin1String("netease_enabled")) {
+                m_lyrics.neteaseEnabled =
+                    value != QLatin1String("false") && value != QLatin1String("0");
+            } else if (key == QLatin1String("plain_enabled")) {
+                m_lyrics.plainEnabled =
+                    value != QLatin1String("false") && value != QLatin1String("0");
+            } else if (key == QLatin1String("slow_interval_secs")) {
+                m_lyrics.slowIntervalSecs = qBound(2, value.toInt(), 120);
             }
         } else if (section == QLatin1String("layout")) {
             if (key.startsWith(QLatin1String("split_"))) {
@@ -211,6 +239,7 @@ void ConfigService::save() {
         out << '"' << m_libraryPaths.at(i) << '"';
     }
     out << "]\n";
+    out << "scan_on_launch = " << (m_scanOnLaunch ? "true" : "false") << "\n";
     if (!m_lyricsDir.isEmpty()) {
         out << "lyrics_dir = \"" << m_lyricsDir << "\"\n";
     }
@@ -225,14 +254,25 @@ void ConfigService::save() {
     out << "[playback]\n";
     out << "volume = " << m_playback.volume << "\n";
     out << "seek_step_secs = " << m_playback.seekStepSecs << "\n";
-    out << "lyrics_offset_ms = " << m_playback.lyricsOffsetMs << "\n\n";
+    out << "lyrics_offset_ms = " << m_playback.lyricsOffsetMs << "\n";
+    out << "dac_passthrough = " << (m_playback.dacPassthrough ? "true" : "false") << "\n\n";
 
     out << "[beets]\n";
     out << "binary = \"" << m_beetsBinary << "\"\n";
     out << "nomove = " << (m_beetsNomove ? "true" : "false") << "\n\n";
 
     out << "[ui]\n";
-    out << "font_family = \"" << m_uiFontFamily << "\"\n\n";
+    out << "font_family = \"" << m_uiFontFamily << "\"\n";
+    out << "font_size = " << m_uiFontSize << "\n";
+    out << "wasd_navigation = " << (m_wasdNavigation ? "true" : "false") << "\n";
+    out << "tooltips_enabled = " << (m_tooltipsEnabled ? "true" : "false") << "\n\n";
+
+    out << "[lyrics]\n";
+    out << "fetch_interval_secs = " << m_lyrics.fetchIntervalSecs << "\n";
+    out << "negative_cache_days = " << m_lyrics.negativeCacheDays << "\n";
+    out << "netease_enabled = " << (m_lyrics.neteaseEnabled ? "true" : "false") << "\n";
+    out << "plain_enabled = " << (m_lyrics.plainEnabled ? "true" : "false") << "\n";
+    out << "slow_interval_secs = " << m_lyrics.slowIntervalSecs << "\n\n";
 
     out << "[layout]\n";
     out << "sidebar_collapsed = " << (m_layoutSidebarCollapsed ? "true" : "false") << "\n";
@@ -256,6 +296,42 @@ void ConfigService::saveOnExit() {
     save();
 }
 
+void ConfigService::setScanOnLaunch(bool enabled) {
+    if (m_scanOnLaunch == enabled) {
+        return;
+    }
+    m_scanOnLaunch = enabled;
+    emit configChanged();
+    save();
+}
+
+void ConfigService::setLibraryPaths(const QString &paths) {
+    QStringList list;
+    for (const QString &part : paths.split(QLatin1Char(','))) {
+        const QString trimmed = part.trimmed();
+        if (!trimmed.isEmpty()) {
+            list << trimmed;
+        }
+    }
+    if (list.isEmpty()) {
+        return;
+    }
+    if (m_libraryPaths == list) {
+        return;
+    }
+    m_libraryPaths = list;
+    emit configChanged();
+}
+
+void ConfigService::setLyricsDir(const QString &path) {
+    const QString trimmed = path.trimmed();
+    if (m_lyricsDir == trimmed) {
+        return;
+    }
+    m_lyricsDir = trimmed;
+    emit configChanged();
+}
+
 void ConfigService::setVolume(int volume) {
     volume = qBound(0, volume, 100);
     if (m_playback.volume == volume) {
@@ -263,6 +339,73 @@ void ConfigService::setVolume(int volume) {
     }
     m_playback.volume = volume;
     emit configChanged();
+}
+
+void ConfigService::setSeekStepSecs(int secs) {
+    secs = qBound(1, secs, 60);
+    if (m_playback.seekStepSecs == secs) {
+        return;
+    }
+    m_playback.seekStepSecs = secs;
+    emit configChanged();
+    save();
+}
+
+void ConfigService::setDacPassthrough(bool enabled) {
+    if (m_playback.dacPassthrough == enabled) {
+        return;
+    }
+    m_playback.dacPassthrough = enabled;
+    emit configChanged();
+    save();
+}
+
+void ConfigService::setLyricsFetchIntervalSecs(int secs) {
+    secs = qBound(1, secs, 60);
+    if (m_lyrics.fetchIntervalSecs == secs) {
+        return;
+    }
+    m_lyrics.fetchIntervalSecs = secs;
+    emit configChanged();
+    save();
+}
+
+void ConfigService::setLyricsNegativeCacheDays(int days) {
+    days = qBound(0, days, 365);
+    if (m_lyrics.negativeCacheDays == days) {
+        return;
+    }
+    m_lyrics.negativeCacheDays = days;
+    emit configChanged();
+    save();
+}
+
+void ConfigService::setLyricsNeteaseEnabled(bool enabled) {
+    if (m_lyrics.neteaseEnabled == enabled) {
+        return;
+    }
+    m_lyrics.neteaseEnabled = enabled;
+    emit configChanged();
+    save();
+}
+
+void ConfigService::setLyricsPlainEnabled(bool enabled) {
+    if (m_lyrics.plainEnabled == enabled) {
+        return;
+    }
+    m_lyrics.plainEnabled = enabled;
+    emit configChanged();
+    save();
+}
+
+void ConfigService::setLyricsSlowIntervalSecs(int secs) {
+    secs = qBound(2, secs, 120);
+    if (m_lyrics.slowIntervalSecs == secs) {
+        return;
+    }
+    m_lyrics.slowIntervalSecs = secs;
+    emit configChanged();
+    save();
 }
 
 void ConfigService::setLyricsOffsetMs(int offsetMs) {
@@ -310,6 +453,33 @@ void ConfigService::setUiFontFamily(const QString &family) {
     }
     m_uiFontFamily = trimmed;
     emit configChanged();
+}
+
+void ConfigService::setUiFontSize(int size) {
+    size = qBound(9, size, 24);
+    if (m_uiFontSize == size) {
+        return;
+    }
+    m_uiFontSize = size;
+    emit configChanged();
+}
+
+void ConfigService::setWasdNavigation(bool enabled) {
+    if (m_wasdNavigation == enabled) {
+        return;
+    }
+    m_wasdNavigation = enabled;
+    emit configChanged();
+    save();
+}
+
+void ConfigService::setTooltipsEnabled(bool enabled) {
+    if (m_tooltipsEnabled == enabled) {
+        return;
+    }
+    m_tooltipsEnabled = enabled;
+    emit configChanged();
+    save();
 }
 
 void ConfigService::scheduleLayoutSave() {

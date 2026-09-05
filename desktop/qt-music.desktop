@@ -11,3 +11,4 @@ Keywords=music;audio;flac;opus;player;library;
 StartupNotify=true
 Terminal=false
 SingleMainWindow=true
+StartupWMClass=qt-music

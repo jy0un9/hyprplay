@@ -21,19 +21,25 @@ public:
     Q_INVOKABLE QString loadToken() const;
     Q_INVOKABLE void setToken(const QString &token);
     Q_INVOKABLE QVariantList searchArtists(const QString &query) const;
+    Q_INVOKABLE QVariantList searchReleases(const QString &artist, const QString &album) const;
     Q_INVOKABLE void fetchArtist(const QString &artistName, const QString &artistFolder,
                                  quint64 discogsId = 0);
+    Q_INVOKABLE void fetchRelease(const QString &artist, const QString &album,
+                                  const QString &albumFolder, quint64 releaseId);
 
 signals:
     void busyChanged();
     void statusChanged();
     void tokenChanged();
     void artistFetched(const QString &artistName, bool success);
+    void releaseFetched(const QString &artist, const QString &album, bool success);
 
 private:
     void setBusy(bool busy);
     void setStatus(const QString &status);
     bool fetchArtistById(quint64 id, const QString &artistName, const QString &artistFolder);
+    bool fetchReleaseById(quint64 id, const QString &artist, const QString &album,
+                          const QString &albumFolder);
 
     ConfigService *m_config = nullptr;
     bool m_busy = false;

@@ -30,6 +30,8 @@ public:
     QHash<QString, int> trackCounts() const { return m_trackCounts; }
     Q_INVOKABLE bool createPlaylist(const QString &name);
     Q_INVOKABLE bool deletePlaylist(const QString &name);
+    Q_INVOKABLE bool renamePlaylist(const QString &oldName, const QString &newName);
+    Q_INVOKABLE bool removeTrackFromPlaylist(const QString &playlistName, int index);
     Q_INVOKABLE bool addTrackToPlaylist(const QString &playlistName, const QVariantMap &track);
 
 public slots:

@@ -23,6 +23,8 @@ class PlaybackService : public QObject {
     Q_PROPERTY(int repeatMode READ repeatMode WRITE setRepeatMode NOTIFY repeatModeChanged)
     Q_PROPERTY(bool shuffle READ shuffle WRITE setShuffle NOTIFY shuffleChanged)
     Q_PROPERTY(QString error READ error NOTIFY playbackChanged)
+    Q_PROPERTY(bool dacPassthrough READ dacPassthrough WRITE setDacPassthrough NOTIFY dacPassthroughChanged)
+    Q_PROPERTY(QString audioBackend READ audioBackend NOTIFY audioBackendChanged)
 
 public:
     explicit PlaybackService(QObject *parent = nullptr);
@@ -41,6 +43,8 @@ public:
     int repeatMode() const { return static_cast<int>(m_repeatMode); }
     bool shuffle() const { return m_shuffle; }
     QString error() const { return m_error; }
+    bool dacPassthrough() const { return m_dacPassthrough; }
+    QString audioBackend() const { return m_audioBackend; }
 
     Q_INVOKABLE void playPath(const QString &path, const QString &title = {},
                               const QString &artist = {}, const QString &album = {});
@@ -57,6 +61,7 @@ public:
     Q_INVOKABLE void setMuted(bool muted);
     Q_INVOKABLE void setRepeatMode(int mode);
     Q_INVOKABLE void setShuffle(bool enabled);
+    Q_INVOKABLE void setDacPassthrough(bool enabled);
 
     bool ensureMpv();
 
@@ -75,6 +80,8 @@ signals:
     void repeatModeChanged();
     void shuffleChanged();
     void trackFinished();
+    void dacPassthroughChanged();
+    void audioBackendChanged();
 
 private:
     bool initMpv();
@@ -84,6 +91,7 @@ private:
     void handleMpvEvent(mpv_event *event);
     void syncFromMpv();
     void loadCurrentQueueTrack();
+    void refreshAudioBackend();
 
     static void mpvWakeup(void *ctx);
 
@@ -108,4 +116,6 @@ private:
     bool m_shuffle = false;
     bool m_trackEndedPending = false;
     QString m_error;
+    bool m_dacPassthrough = false;
+    QString m_audioBackend;
 };

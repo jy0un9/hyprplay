@@ -29,3 +29,10 @@ void ArtistModel::setArtists(const QStringList &artists) {
     endResetModel();
     emit countChanged();
 }
+
+QString ArtistModel::artistAt(int index) const {
+    if (index < 0 || index >= m_artists.size()) {
+        return {};
+    }
+    return m_artists.at(index);
+}

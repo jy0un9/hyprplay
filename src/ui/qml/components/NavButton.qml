@@ -9,12 +9,12 @@ AbstractButton {
 
     contentItem: Row {
         spacing: 10
-        leftPadding: control.flat ? 10 : 12
-        rightPadding: control.flat ? 10 : 12
+        leftPadding: 10
+        rightPadding: 10
 
         Label {
             text: control.iconText
-            font.pixelSize: 15
+            font.pixelSize: Theme.fontSubtitle
             opacity: control.navHighlighted ? 1 : 0.75
             anchors.verticalCenter: parent.verticalCenter
             visible: control.iconText.length > 0
@@ -22,9 +22,9 @@ AbstractButton {
 
         Label {
             text: control.text
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
             font.weight: control.navHighlighted ? Font.DemiBold : Font.Normal
-            color: control.navHighlighted ? Theme.foreground : Theme.foreground
+            color: control.navHighlighted ? Theme.accent : Theme.foreground
             opacity: control.navHighlighted ? 1 : 0.82
             anchors.verticalCenter: parent.verticalCenter
             elide: Text.ElideRight
@@ -32,18 +32,17 @@ AbstractButton {
     }
 
     background: Rectangle {
-        radius: Theme.radiusSm
+        radius: 0
         color: {
-            if (control.navHighlighted)
-                return Theme.rgba(Theme.accent, 0.2)
             if (control.hovered || control.pressed)
                 return Theme.rgba(Theme.selection, 0.9)
             return "transparent"
         }
-        border.color: control.navHighlighted ? Theme.rgba(Theme.accent, 0.35) : "transparent"
-        border.width: control.navHighlighted ? 1 : 0
+
+        Behavior on color {
+            ColorAnimation { duration: 120 }
+        }
     }
 
-    padding: 8
-    flat: true
+    padding: Theme.spaceSm
 }

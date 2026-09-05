@@ -1,6 +1,9 @@
 module components
-Sidebar 1.0 Sidebar.qml
 AppListDelegate 1.0 AppListDelegate.qml
 NavButton 1.0 NavButton.qml
 SectionLabel 1.0 SectionLabel.qml
 AppCard 1.0 AppCard.qml
+PrimaryButton 1.0 PrimaryButton.qml
+SplitHandle 1.0 SplitHandle.qml
+EmptyState 1.0 EmptyState.qml
+Snackbar 1.0 Snackbar.qml

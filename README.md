@@ -83,9 +83,20 @@ Installs:
 
 | Key | Action |
 | --- | --- |
-| `/` | Open library search (Browse view) |
+| `/`, `Ctrl+F`, `Ctrl+K` | Open library search (Browse view) |
+| `Tab` (in search) | Cycle search scope (artists → albums → tracks) |
 | `Space` | Play / pause (when no text field is focused) |
-| `Esc` | Close library search |
+| `↑` / `↓` | Move in artists / albums list |
+| `←` / `→` | Back / forward in library (drill in-out) |
+| `PgUp` / `PgDn` | Seek backward / forward by step |
+| `W` / `A` / `S` / `D` | Same as arrows (enable in Settings → Appearance) |
+| `J` / `K` | Next / previous track |
+| `Enter` | Play selected track |
+| `Delete` (playlists) | Remove focused playlist track |
+| `Ctrl+N` | New playlist (focus name field) |
+| `Ctrl+,` | Open settings |
+| `?` | Keyboard shortcut help |
+| `Esc` | Close dialog / library search |
 
 Use the sidebar to switch between **Browse**, **Playlists**, **Import**, and **Settings**. Right-click artists, albums, or tracks in the library for tag editing and Discogs fetch.
 

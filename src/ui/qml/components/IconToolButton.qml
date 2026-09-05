@@ -7,6 +7,7 @@ ToolButton {
     property string iconName: ""
     property int iconSize: 20
     property real iconOpacity: 1
+    property color iconColor: Theme.foreground
 
     display: AbstractButton.IconOnly
     contentItem: Image {
@@ -14,10 +15,10 @@ ToolButton {
         height: control.iconSize
         anchors.centerIn: parent
         source: control.iconName.length > 0
-                ? "image://themeicon/" + control.iconName + "?" + control.iconSize
+                ? Theme.iconUrl(control.iconName, control.iconSize, control.iconColor)
                 : ""
         fillMode: Image.PreserveAspectFit
-        opacity: control.iconOpacity
+        opacity: control.pressed ? control.iconOpacity * 0.55 : control.iconOpacity
         cache: true
     }
 }

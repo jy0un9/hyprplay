@@ -1,18 +1,36 @@
 import QtQuick
-import QtQuick.Controls
 
 Rectangle {
     id: handle
 
-    implicitWidth: orientation === Qt.Horizontal ? 5 : parent.width
-    implicitHeight: orientation === Qt.Vertical ? 5 : parent.height
-
     property int orientation: Qt.Horizontal
+    signal released()
 
-    color: pressedHandler.pressed || hoverHandler.hovered
+    implicitWidth: orientation === Qt.Horizontal
+                   ? (hoverHandler.hovered || pressArea.pressed ? 7 : 5)
+                   : parent.width
+    implicitHeight: orientation === Qt.Vertical
+                    ? (hoverHandler.hovered || pressArea.pressed ? 7 : 5)
+                    : parent.height
+
+    color: pressArea.pressed || hoverHandler.hovered
            ? Theme.rgba(Theme.accent, 0.55)
            : Theme.rgba(Theme.border, 0.35)
 
-    HoverHandler { id: hoverHandler }
-    PressHandler { id: pressedHandler }
+    Behavior on color { ColorAnimation { duration: 120 } }
+    Behavior on implicitWidth { NumberAnimation { duration: 80 } }
+    Behavior on implicitHeight { NumberAnimation { duration: 80 } }
+
+    HoverHandler {
+        id: hoverHandler
+        cursorShape: handle.orientation === Qt.Horizontal ? Qt.SplitHCursor : Qt.SplitVCursor
+    }
+
+    MouseArea {
+        id: pressArea
+        anchors.fill: parent
+        propagateComposedEvents: true
+        onPressed: (mouse) => mouse.accepted = false
+        onReleased: handle.released()
+    }
 }

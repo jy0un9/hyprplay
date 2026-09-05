@@ -343,6 +343,62 @@ bool PlaylistService::deletePlaylist(const QString &name) {
     return true;
 }
 
+bool PlaylistService::renamePlaylist(const QString &oldName, const QString &newName) {
+    const QString sanitized = sanitizePlaylistName(newName);
+    if (oldName.isEmpty() || sanitized.isEmpty()) {
+        setStatus(QStringLiteral("Playlist name cannot be empty"));
+        return false;
+    }
+    if (oldName == sanitized) {
+        return true;
+    }
+
+    const QDir dir(playlistsDirectory());
+    const QString oldPath = dir.absoluteFilePath(oldName + QStringLiteral(".m3u8"));
+    const QString newPath = dir.absoluteFilePath(sanitized + QStringLiteral(".m3u8"));
+    if (QFile::exists(newPath)) {
+        setStatus(QStringLiteral("Playlist already exists"));
+        return false;
+    }
+    if (!QFile::rename(oldPath, newPath)) {
+        setStatus(QStringLiteral("Failed to rename playlist"));
+        return false;
+    }
+
+    if (m_selectedPlaylist == oldName) {
+        m_selectedPlaylist = sanitized;
+        emit selectionChanged();
+    }
+    reload();
+    setStatus(QStringLiteral("Renamed playlist to \"%1\"").arg(sanitized));
+    return true;
+}
+
+bool PlaylistService::removeTrackFromPlaylist(const QString &playlistName, int index) {
+    if (playlistName.isEmpty() || index < 0) {
+        return false;
+    }
+
+    LoadedPlaylist playlist = playlistByName(playlistName);
+    if (index >= playlist.entries.size()) {
+        return false;
+    }
+    playlist.entries.removeAt(index);
+    if (!savePlaylist(playlist)) {
+        setStatus(QStringLiteral("Failed to update playlist"));
+        return false;
+    }
+
+    m_trackCounts.insert(playlistName, playlist.entries.size());
+    if (m_selectedPlaylist == playlistName) {
+        m_selectedTracksDirty = true;
+        emit playlistTracksChanged();
+    }
+    emit playlistsChanged();
+    setStatus(QStringLiteral("Removed track from \"%1\"").arg(playlistName));
+    return true;
+}
+
 bool PlaylistService::addTrackToPlaylist(const QString &playlistName, const QVariantMap &track) {
     if (playlistName.isEmpty() || track.value(QStringLiteral("path")).toString().isEmpty()) {
         return false;

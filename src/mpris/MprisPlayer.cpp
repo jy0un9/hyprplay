@@ -1,14 +1,24 @@
 #include "MprisPlayer.h"
 
 #include "../core/PlaybackService.h"
+#include "../core/TrackMediaService.h"
 
 #include <QCoreApplication>
 #include <QDBusConnection>
+#include <QDBusMessage>
 #include <QDBusObjectPath>
 #include <QUrl>
 
-MprisPlayer::MprisPlayer(PlaybackService *playback, QObject *parent)
-    : QObject(parent), m_playback(playback) {
+namespace {
+
+constexpr auto kMprisPath = "/org/mpris/MediaPlayer2";
+constexpr auto kPlayerInterface = "org.mpris.MediaPlayer2.Player";
+constexpr auto kPropertiesInterface = "org.freedesktop.DBus.Properties";
+
+} // namespace
+
+MprisPlayer::MprisPlayer(PlaybackService *playback, TrackMediaService *media, QObject *parent)
+    : QObject(parent), m_playback(playback), m_media(media) {
     m_serviceName = QStringLiteral("org.mpris.MediaPlayer2.qt-music");
 }
 
@@ -25,7 +35,7 @@ void MprisPlayer::registerAdaptor() {
     }
 
     auto *rootAdaptor = new MprisRootAdaptor(this);
-    new MprisPlayerAdaptor(this, m_playback);
+    new MprisPlayerAdaptor(this, m_playback, m_media);
     Q_UNUSED(rootAdaptor);
 
     QDBusConnection bus = QDBusConnection::sessionBus();
@@ -34,7 +44,8 @@ void MprisPlayer::registerAdaptor() {
         return;
     }
 
-    if (!bus.registerObject(QStringLiteral("/org/mpris/MediaPlayer2"), this)) {
+    if (!bus.registerObject(QString::fromLatin1(kMprisPath), this,
+                            QDBusConnection::ExportAdaptors)) {
         qWarning("MPRIS: failed to register object");
         return;
     }
@@ -49,6 +60,7 @@ void MprisPlayer::connectPlayback() {
     connect(m_playback, &PlaybackService::playbackChanged, this,
             &MprisPlayer::updatePlaybackStatus);
     connect(m_playback, &PlaybackService::trackChanged, this, &MprisPlayer::updateMetadata);
+    connect(m_media, &TrackMediaService::mediaChanged, this, &MprisPlayer::updateMetadata);
     connect(m_playback, &PlaybackService::volumeChanged, this, &MprisPlayer::updatePlaybackStatus);
 }
 
@@ -58,7 +70,7 @@ void MprisPlayer::updateMetadata() {
     }
     auto *adaptor = findChild<MprisPlayerAdaptor *>();
     if (adaptor) {
-        emit adaptor->metadataChanged();
+        adaptor->notifyMetadataChanged();
     }
 }
 
@@ -68,7 +80,7 @@ void MprisPlayer::updatePlaybackStatus() {
     }
     auto *adaptor = findChild<MprisPlayerAdaptor *>();
     if (adaptor) {
-        emit adaptor->playbackStatusChanged();
+        adaptor->notifyPlaybackStatusChanged();
     }
 }
 
@@ -83,10 +95,51 @@ void MprisRootAdaptor::Raise() {
     emit RaiseRequested();
 }
 
-MprisPlayerAdaptor::MprisPlayerAdaptor(MprisPlayer *player, PlaybackService *playback)
-    : QDBusAbstractAdaptor(player), m_player(player), m_playback(playback) {
-    connect(playback, &PlaybackService::playbackChanged, this, &MprisPlayerAdaptor::playbackStatusChanged);
-    connect(playback, &PlaybackService::trackChanged, this, &MprisPlayerAdaptor::metadataChanged);
+MprisPlayerAdaptor::MprisPlayerAdaptor(MprisPlayer *player, PlaybackService *playback,
+                                       TrackMediaService *media)
+    : QDBusAbstractAdaptor(player), m_player(player), m_playback(playback), m_media(media) {
+    connect(playback, &PlaybackService::playbackChanged, this, [this]() {
+        notifyPlaybackStatusChanged();
+        if (m_playback->duration() > 0.0) {
+            notifyMetadataChanged();
+        }
+    });
+    connect(playback, &PlaybackService::trackChanged, this, [this]() {
+        ++m_trackSerial;
+        notifyMetadataChanged();
+        notifyPlaybackStatusChanged();
+    });
+    connect(playback, &PlaybackService::positionChanged, this,
+            &MprisPlayerAdaptor::positionChangedInternally);
+    connect(media, &TrackMediaService::mediaChanged, this,
+            &MprisPlayerAdaptor::notifyMetadataChanged);
+}
+
+void MprisPlayerAdaptor::emitPropertiesChanged(const QString &interfaceName,
+                                               const QVariantMap &changed) {
+    QDBusMessage msg = QDBusMessage::createSignal(QString::fromLatin1(kMprisPath),
+                                                  QString::fromLatin1(kPropertiesInterface),
+                                                  QStringLiteral("PropertiesChanged"));
+    msg.setArguments({interfaceName, changed, QStringList{}});
+    QDBusConnection::sessionBus().send(msg);
+}
+
+void MprisPlayerAdaptor::notifyMetadataChanged() {
+    const QVariantMap meta = metadata();
+    emitPropertiesChanged(QString::fromLatin1(kPlayerInterface),
+                          {{QStringLiteral("Metadata"), meta}});
+    emit metadataChanged();
+}
+
+void MprisPlayerAdaptor::notifyPlaybackStatusChanged() {
+    const QString status = playbackStatus();
+    emitPropertiesChanged(QString::fromLatin1(kPlayerInterface),
+                          {{QStringLiteral("PlaybackStatus"), status}});
+    emit playbackStatusChanged();
+}
+
+qlonglong MprisPlayerAdaptor::currentPositionMicros() const {
+    return static_cast<qlonglong>(m_playback->position() * 1'000'000);
 }
 
 QString MprisPlayerAdaptor::playbackStatus() const {
@@ -105,14 +158,36 @@ QVariantMap MprisPlayerAdaptor::metadata() const {
         return meta;
     }
 
+    const QString trackId =
+        QStringLiteral("/org/qt/music/track/%1").arg(qMax(1, m_trackSerial));
     meta.insert(QStringLiteral("mpris:trackid"),
-                QVariant::fromValue(QDBusObjectPath(QStringLiteral("/org/qt/music/current"))));
-    meta.insert(QStringLiteral("xesam:title"), m_playback->title());
-    meta.insert(QStringLiteral("xesam:artist"), QStringList{m_playback->artist()});
-    meta.insert(QStringLiteral("xesam:album"), m_playback->album());
-    meta.insert(QStringLiteral("mpris:length"),
-                static_cast<qlonglong>(m_playback->duration() * 1'000'000));
-    meta.insert(QStringLiteral("xesam:url"), QUrl::fromLocalFile(m_playback->currentPath()));
+                QVariant::fromValue(QDBusObjectPath(trackId)));
+
+    const QString title = m_playback->title();
+    const QString artist = m_playback->artist();
+    const QString album = m_playback->album();
+
+    if (!title.isEmpty()) {
+        meta.insert(QStringLiteral("xesam:title"), title);
+    }
+    if (!artist.isEmpty()) {
+        meta.insert(QStringLiteral("xesam:artist"), QStringList{artist});
+    }
+    if (!album.isEmpty()) {
+        meta.insert(QStringLiteral("xesam:album"), album);
+    }
+
+    const qlonglong lengthMicros =
+        static_cast<qlonglong>(m_playback->duration() * 1'000'000);
+    if (lengthMicros > 0) {
+        meta.insert(QStringLiteral("mpris:length"), lengthMicros);
+    }
+
+    meta.insert(QStringLiteral("xesam:url"),
+                QUrl::fromLocalFile(m_playback->currentPath()).toString());
+    if (m_media && !m_media->albumArtUrl().isEmpty()) {
+        meta.insert(QStringLiteral("mpris:artUrl"), m_media->albumArtUrl());
+    }
     return meta;
 }
 
@@ -138,9 +213,21 @@ void MprisPlayerAdaptor::PlayPause() {
 void MprisPlayerAdaptor::Stop() { m_playback->handleMprisStop(); }
 void MprisPlayerAdaptor::Next() { m_playback->handleMprisNext(); }
 void MprisPlayerAdaptor::Previous() { m_playback->handleMprisPrevious(); }
-void MprisPlayerAdaptor::Seek(double offset) { m_playback->handleMprisSeek(offset); }
+void MprisPlayerAdaptor::Seek(double offset) {
+    m_playback->handleMprisSeek(offset);
+    emitSeeked();
+}
 
 void MprisPlayerAdaptor::SetPosition(const QDBusObjectPath &trackId, double position) {
     Q_UNUSED(trackId);
     m_playback->seek(position / 1'000'000.0);
+    emitSeeked();
+}
+
+void MprisPlayerAdaptor::emitSeeked() {
+    QDBusMessage msg = QDBusMessage::createSignal(QString::fromLatin1(kMprisPath),
+                                                  QString::fromLatin1(kPlayerInterface),
+                                                  QStringLiteral("Seeked"));
+    msg.setArguments({QVariant::fromValue(currentPositionMicros())});
+    QDBusConnection::sessionBus().send(msg);
 }

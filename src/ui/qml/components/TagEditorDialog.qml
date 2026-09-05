@@ -20,14 +20,14 @@ Dialog {
     background: Rectangle {
         radius: Theme.radiusMd
         color: Theme.surface
-        border.color: Theme.rgba(Theme.border, 0.45)
+        border.color: Theme.rgba(Theme.border, 0.35)
         border.width: 1
     }
 
     property alias fields: fieldGrid
 
     contentItem: ColumnLayout {
-        spacing: 8
+        spacing: Theme.spaceSm
 
         Label {
             text: {
@@ -44,8 +44,8 @@ Dialog {
         GridLayout {
             id: fieldGrid
             columns: 2
-            columnSpacing: 12
-            rowSpacing: 8
+            columnSpacing: Theme.spaceMd
+            rowSpacing: Theme.spaceSm
             Layout.fillWidth: true
 
             Label { text: "Title"; visible: App.tagEditorMode === "track" }
@@ -105,7 +105,7 @@ Dialog {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.spaceSm
 
             Button {
                 text: "Lookup metadata…"

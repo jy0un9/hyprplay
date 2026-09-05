@@ -1,19 +1,20 @@
 <RCC>
     <qresource prefix="/">
+        <file alias="qt-music.svg">../desktop/icons/hicolor/scalable/apps/qt-music.svg</file>
         <file alias="Main.qml">../src/ui/qml/Main.qml</file>
         <file alias="views/LibraryView.qml">../src/ui/qml/views/LibraryView.qml</file>
         <file alias="views/PlaylistsView.qml">../src/ui/qml/views/PlaylistsView.qml</file>
         <file alias="views/SettingsView.qml">../src/ui/qml/views/SettingsView.qml</file>
         <file alias="views/ImportView.qml">../src/ui/qml/views/ImportView.qml</file>
         <file alias="components/NowPlayingBar.qml">../src/ui/qml/components/NowPlayingBar.qml</file>
-        <file alias="components/Sidebar.qml">../src/ui/qml/components/Sidebar.qml</file>
         <file alias="components/WaveformSeekBar.qml">../src/ui/qml/components/WaveformSeekBar.qml</file>
         <file alias="components/KaraokeLyricsView.qml">../src/ui/qml/components/KaraokeLyricsView.qml</file>
         <file alias="components/NowPlayingPanel.qml">../src/ui/qml/components/NowPlayingPanel.qml</file>
         <file alias="components/ArtistPanel.qml">../src/ui/qml/components/ArtistPanel.qml</file>
+        <file alias="components/AlbumPanel.qml">../src/ui/qml/components/AlbumPanel.qml</file>
+        <file alias="components/DiscogsAlbumDialog.qml">../src/ui/qml/components/DiscogsAlbumDialog.qml</file>
         <file alias="components/TagEditorDialog.qml">../src/ui/qml/components/TagEditorDialog.qml</file>
         <file alias="components/TagFetchDialog.qml">../src/ui/qml/components/TagFetchDialog.qml</file>
-        <file alias="components/SearchOverlay.qml">../src/ui/qml/components/SearchOverlay.qml</file>
         <file alias="components/AppIcon.qml">../src/ui/qml/components/AppIcon.qml</file>
         <file alias="components/IconToolButton.qml">../src/ui/qml/components/IconToolButton.qml</file>
         <file alias="components/NavIconButton.qml">../src/ui/qml/components/NavIconButton.qml</file>
@@ -23,5 +24,8 @@
         <file alias="components/NavButton.qml">../src/ui/qml/components/NavButton.qml</file>
         <file alias="components/SectionLabel.qml">../src/ui/qml/components/SectionLabel.qml</file>
         <file alias="components/SplitHandle.qml">../src/ui/qml/components/SplitHandle.qml</file>
+        <file alias="components/PrimaryButton.qml">../src/ui/qml/components/PrimaryButton.qml</file>
+        <file alias="components/EmptyState.qml">../src/ui/qml/components/EmptyState.qml</file>
+        <file alias="components/Snackbar.qml">../src/ui/qml/components/Snackbar.qml</file>
     </qresource>
 </RCC>

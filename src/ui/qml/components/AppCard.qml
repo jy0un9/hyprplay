@@ -7,22 +7,33 @@ Pane {
 
     property alias contentItem: layout.data
     default property alias children: layout.data
-    property int cardPadding: 12
+    property int cardPadding: Theme.spaceMd
     property bool elevated: false
 
     padding: cardPadding
-    background: Rectangle {
-        radius: Theme.radiusMd
-        color: Theme.surface
-        border.color: Theme.rgba(Theme.border, 0.55)
-        border.width: 1
-        layer.enabled: card.elevated
-        layer.effect: null
+    background: Item {
+        Rectangle {
+            x: 0
+            y: 2
+            width: parent.width
+            height: parent.height
+            radius: Theme.radiusMd
+            color: "black"
+            opacity: 0.08
+            visible: card.elevated
+        }
+        Rectangle {
+            anchors.fill: parent
+            radius: Theme.radiusMd
+            color: Theme.surface
+            border.color: Theme.rgba(Theme.border, 0.35)
+            border.width: 1
+        }
     }
 
     ColumnLayout {
         id: layout
         anchors.fill: parent
-        spacing: 8
+        spacing: Theme.spaceSm
     }
 }

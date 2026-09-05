@@ -43,6 +43,17 @@ QString OmarchyThemeService::rgba(const QString &hexColor, qreal alpha) const {
     return color.name(QColor::HexArgb);
 }
 
+QString OmarchyThemeService::iconUrl(const QString &name, int size, const QString &color) const {
+    QColor tint(color.isEmpty() ? m_colors.value(QStringLiteral("foreground")) : color);
+    if (!tint.isValid()) {
+        tint = QColor(235, 235, 235);
+    }
+    return QStringLiteral("image://themeicon/%1?%2&%3")
+        .arg(name)
+        .arg(qMax(1, size))
+        .arg(tint.name().mid(1));
+}
+
 void OmarchyThemeService::reload() {
     loadColors();
     applyApplicationPalette();
@@ -93,6 +104,7 @@ QHash<QString, QString> OmarchyThemeService::defaultPalette() {
     colors.insert(QStringLiteral("red"), QStringLiteral("#f7768e"));
     colors.insert(QStringLiteral("green"), QStringLiteral("#9ece6a"));
     colors.insert(QStringLiteral("yellow"), QStringLiteral("#e0af68"));
+    colors.insert(QStringLiteral("magenta"), QStringLiteral("#ad8ee6"));
     return colors;
 }
 

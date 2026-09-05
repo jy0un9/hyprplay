@@ -28,6 +28,8 @@ public:
     int trackCount() const { return m_trackCount; }
     QString scanStatus() const { return m_scanStatus; }
 
+    void setScanOnLaunch(bool enabled) { m_scanOnLaunch = enabled; }
+
     Q_INVOKABLE void ensureLibrary(const QStringList &roots);
     Q_INVOKABLE void rescan(const QStringList &roots);
     Q_INVOKABLE QStringList artists() const;
@@ -63,6 +65,7 @@ private:
     QSqlDatabase m_db;
     QStringList m_libraryRoots;
     bool m_scanning = false;
+    bool m_scanOnLaunch = true;
     int m_trackCount = 0;
     QString m_scanStatus;
 };

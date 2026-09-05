@@ -1,20 +1,21 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import components 1.0
 
 Pane {
     id: importView
-    padding: 16
+    padding: Theme.spaceLg
 
     background: Rectangle { color: Theme.background }
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: Theme.spaceMd
 
         Label {
             text: "Import Inbox"
-            font.pixelSize: 22
+            font.pixelSize: Theme.fontDisplay
             font.bold: true
             color: Theme.foreground
         }
@@ -29,7 +30,7 @@ Pane {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.spaceSm
 
             Button {
                 text: "Scan Inbox"
@@ -68,7 +69,7 @@ Pane {
         Label {
             text: "Inbox: " + (App.config.importInbox.length > 0 ? App.config.importInbox : "(not configured)")
             opacity: 0.55
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontCaption
             color: Theme.foreground
             Layout.fillWidth: true
         }
@@ -80,11 +81,26 @@ Pane {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             model: App.importInbox.albums
+            visible: count > 0 || App.importInbox.importing
 
             delegate: ItemDelegate {
                 width: albumList.width
                 text: model.artist + " — " + model.album + "  [" + model.trackCount + " FLAC]"
             }
+        }
+
+        EmptyState {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            iconName: "folder-download-symbolic"
+            title: App.config.importInbox.length > 0 ? "Inbox is empty" : "No inbox folder set"
+            subtitle: App.config.importInbox.length > 0
+                      ? "Drop albums into the inbox folder, then scan."
+                      : "Set your Music folder in Settings first."
+            actionText: App.config.importInbox.length > 0 ? "" : "Open Settings"
+            loading: App.importInbox.importing
+            visible: albumList.count === 0 && !App.importInbox.importing
+            onActionClicked: App.showSettings()
         }
     }
 }
