@@ -32,15 +32,16 @@ Pane {
         }
 
         Item {
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 220
-            Layout.preferredHeight: 220
-            Layout.leftMargin: 4
-            Layout.rightMargin: 4
-            
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(400, panel.width - Theme.spaceLg * 2)
+
             Rectangle {
-                anchors.fill: parent
+                anchors.centerIn: parent
+                width: Math.min(parent.width, parent.height)
+                height: width
+                radius: Theme.radiusMd
                 color: Theme.rgba(Theme.selection, 0.85)
+                clip: true
 
                 Image {
                     id: albumArtwork
@@ -53,9 +54,9 @@ Pane {
 
                 Image {
                     anchors.centerIn: parent
-                    width: 56
-                    height: 56
-                    source: Theme.iconUrl("audio-x-generic-symbolic", 56, Theme.foreground)
+                    width: 72
+                    height: 72
+                    source: Theme.iconUrl("audio-x-generic-symbolic", 72, Theme.foreground)
                     opacity: 0.22
                     visible: albumArtwork.status !== Image.Ready
                 }

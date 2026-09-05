@@ -348,6 +348,14 @@ void PlaybackService::play() {
 }
 
 void PlaybackService::pause() {
+    if (m_currentPath.isEmpty()) {
+        return;
+    }
+    if (!ensureMpv()) {
+        m_error = QStringLiteral("Audio engine unavailable");
+        emit playbackChanged();
+        return;
+    }
     runMpvCommand(m_mpv, {QStringLiteral("set"), QStringLiteral("pause"), QStringLiteral("yes")});
     processMpvEvents();
     syncFromMpv();

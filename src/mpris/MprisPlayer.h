@@ -17,6 +17,9 @@ public:
 
     void publish();
 
+signals:
+    void raiseRequested();
+
 private:
     void registerAdaptor();
     void connectPlayback();
@@ -72,12 +75,12 @@ class MprisPlayerAdaptor : public QDBusAbstractAdaptor {
     Q_PROPERTY(QVariantMap Metadata READ metadata NOTIFY metadataChanged)
     Q_PROPERTY(double Volume READ volume WRITE setVolume)
     Q_PROPERTY(QStringList SupportedMimeTypes READ supportedMimeTypes)
-    Q_PROPERTY(bool CanGoNext READ canGoNext)
-    Q_PROPERTY(bool CanGoPrevious READ canGoPrevious)
-    Q_PROPERTY(bool CanPlay READ canPlay)
-    Q_PROPERTY(bool CanPause READ canPause)
-    Q_PROPERTY(bool CanSeek READ canSeek)
-    Q_PROPERTY(bool CanControl READ canControl)
+    Q_PROPERTY(bool CanGoNext READ canGoNext NOTIFY capabilitiesChanged)
+    Q_PROPERTY(bool CanGoPrevious READ canGoPrevious NOTIFY capabilitiesChanged)
+    Q_PROPERTY(bool CanPlay READ canPlay NOTIFY capabilitiesChanged)
+    Q_PROPERTY(bool CanPause READ canPause NOTIFY capabilitiesChanged)
+    Q_PROPERTY(bool CanSeek READ canSeek NOTIFY capabilitiesChanged)
+    Q_PROPERTY(bool CanControl READ canControl NOTIFY capabilitiesChanged)
     Q_PROPERTY(double MinimumRate READ minimumRate)
     Q_PROPERTY(double MaximumRate READ maximumRate)
     Q_PROPERTY(qlonglong Position READ position)
@@ -117,10 +120,12 @@ public slots:
 
     void notifyMetadataChanged();
     void notifyPlaybackStatusChanged();
+    void notifyCapabilitiesChanged();
 
 signals:
     void playbackStatusChanged();
     void metadataChanged();
+    void capabilitiesChanged();
     void Seeked(qlonglong position);
     void positionChangedInternally();
 

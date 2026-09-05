@@ -1,8 +1,10 @@
 #pragma once
 
 #include <QColor>
+#include <QFileInfo>
 #include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QString>
 
 class QFileSystemWatcher;
@@ -84,6 +86,7 @@ signals:
 private:
     QString resolveColorsPath() const;
     void loadColors();
+    void syncWatchPaths(const QString &colorsPath);
     void applyApplicationPalette();
     static QHash<QString, QString> parseColorsToml(const QString &path);
     static QHash<QString, QString> defaultPalette();
@@ -94,4 +97,5 @@ private:
     bool m_dark = true;
     QHash<QString, QString> m_colors;
     QString m_colorsPath;
+    QSet<QString> m_watchedPaths;
 };

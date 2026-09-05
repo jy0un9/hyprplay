@@ -16,23 +16,13 @@ Pane {
         anchors.fill: parent
         spacing: 10
 
-        Label {
-            text: "Now Playing"
-            font.bold: true
-            font.pixelSize: Theme.fontSmall
-            opacity: 0.55
-            color: Theme.foreground
-            Layout.alignment: Qt.AlignHCenter
-        }
-
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(220, panel.width - 32)
-            Layout.maximumHeight: 240
+            Layout.preferredHeight: Math.min(400, panel.width - Theme.spaceLg * 2)
 
             Rectangle {
                 anchors.centerIn: parent
-                width: Math.min(parent.width - 8, parent.height, 220)
+                width: Math.min(parent.width, parent.height)
                 height: width
                 radius: Theme.radiusMd
                 color: Theme.rgba(Theme.selection, 0.85)
@@ -47,38 +37,15 @@ Pane {
 
                 Image {
                     anchors.centerIn: parent
-                    width: 56
-                    height: 56
-                    source: Theme.iconUrl("audio-x-generic-symbolic", 56, Theme.foreground)
+                    width: 72
+                    height: 72
+                    source: Theme.iconUrl("audio-x-generic-symbolic", 72, Theme.foreground)
                     fillMode: Image.PreserveAspectFit
                     opacity: 0.22
                     visible: media.albumArtUrl.length === 0
                     cache: true
                 }
             }
-        }
-
-        Label {
-            text: playback.title
-            font.bold: true
-            font.pixelSize: Theme.fontTitle
-            color: playback.playing && !playback.paused
-                   ? Theme.accent : Theme.foreground
-            wrapMode: Text.WordWrap
-            horizontalAlignment: Text.AlignHCenter
-            Layout.fillWidth: true
-            maximumLineCount: 2
-        }
-
-        Label {
-            text: playback.artist + " — " + playback.album
-            opacity: 0.65
-            font.pixelSize: Theme.fontSmall
-            color: Theme.foreground
-            wrapMode: Text.WordWrap
-            horizontalAlignment: Text.AlignHCenter
-            Layout.fillWidth: true
-            maximumLineCount: 2
         }
 
         Rectangle {

@@ -4,6 +4,9 @@
 #include "mpris/MprisPlayer.h"
 
 #include <QDir>
+#include <QDBusConnection>
+#include <QDBusConnectionInterface>
+#include <QDBusMessage>
 #include <QFile>
 #include <QGuiApplication>
 #include <QIcon>
@@ -12,12 +15,17 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QVersionNumber>
 
 #include <clocale>
 #include <cstdio>
 #include <unistd.h>
 
 namespace {
+
+constexpr char kAppVersion[] = "0.1.0";
+constexpr char kMprisService[] = "org.mpris.MediaPlayer2.qt-music";
+constexpr char kMprisPath[] = "/org/mpris/MediaPlayer2";
 
 QString runtimeDir() {
     const QByteArray env = qgetenv("XDG_RUNTIME_DIR");
@@ -87,8 +95,50 @@ bool prepareDisplayPlatform() {
 
 } // namespace
 
+bool handleCliArgs(int argc, char *argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        const QString arg = QString::fromLocal8Bit(argv[i]);
+        if (arg == QStringLiteral("--help") || arg == QStringLiteral("-h")) {
+            std::fprintf(stdout,
+                         "qt-music %s — local FLAC/Opus music player\n"
+                         "\n"
+                         "Usage: qt-music [options]\n"
+                         "  -h, --help     show this help and exit\n"
+                         "  -V, --version  show version and exit\n",
+                         kAppVersion);
+            return true;
+        }
+        if (arg == QStringLiteral("--version") || arg == QStringLiteral("-V")) {
+            std::fprintf(stdout, "qt-music %s\n", kAppVersion);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool raiseExistingInstance() {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        return false;
+    }
+    QDBusConnectionInterface *iface = bus.interface();
+    if (!iface || !iface->isServiceRegistered(QString::fromLatin1(kMprisService))) {
+        return false;
+    }
+    QDBusMessage raise = QDBusMessage::createMethodCall(QString::fromLatin1(kMprisService),
+                                                        QString::fromLatin1(kMprisPath),
+                                                        QStringLiteral("org.mpris.MediaPlayer2"),
+                                                        QStringLiteral("Raise"));
+    bus.call(raise, QDBus::Block, 2000);
+    return true;
+}
+
 int main(int argc, char *argv[]) {
     setlocale(LC_NUMERIC, "C");
+
+    if (handleCliArgs(argc, argv)) {
+        return 0;
+    }
 
     if (!prepareDisplayPlatform()) {
         return 1;
@@ -100,7 +150,13 @@ int main(int argc, char *argv[]) {
     QGuiApplication::setApplicationName(QStringLiteral("qt-music"));
     QGuiApplication::setOrganizationName(QStringLiteral("qt-music"));
     QGuiApplication::setDesktopFileName(QStringLiteral("qt-music"));
+    QGuiApplication::setApplicationVersion(QString::fromLatin1(kAppVersion));
     app.setWindowIcon(QIcon(QStringLiteral(":/qt-music.svg")));
+
+    if (raiseExistingInstance()) {
+        std::fprintf(stderr, "qt-music: already running, raised existing window\n");
+        return 0;
+    }
 
     QQuickStyle::setStyle(QStringLiteral("Material"));
     setupSystemIconTheme();
@@ -143,6 +199,11 @@ int main(int argc, char *argv[]) {
             settings.setValue(QStringLiteral("window/y"), quickWindow->y());
             settings.setValue(QStringLiteral("window/width"), quickWindow->width());
             settings.setValue(QStringLiteral("window/height"), quickWindow->height());
+        });
+        QObject::connect(&mpris, &MprisPlayer::raiseRequested, quickWindow, [quickWindow]() {
+            quickWindow->show();
+            quickWindow->raise();
+            quickWindow->requestActivate();
         });
     }
 

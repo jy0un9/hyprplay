@@ -51,9 +51,7 @@ void MprisPlayer::registerAdaptor() {
     }
 
     m_registered = true;
-    connect(rootAdaptor, &MprisRootAdaptor::RaiseRequested, this, []() {
-        // Window raise handled by shell; no-op for MVP
-    });
+    connect(rootAdaptor, &MprisRootAdaptor::RaiseRequested, this, &MprisPlayer::raiseRequested);
 }
 
 void MprisPlayer::connectPlayback() {
@@ -129,6 +127,7 @@ void MprisPlayerAdaptor::notifyMetadataChanged() {
     emitPropertiesChanged(QString::fromLatin1(kPlayerInterface),
                           {{QStringLiteral("Metadata"), meta}});
     emit metadataChanged();
+    notifyCapabilitiesChanged();
 }
 
 void MprisPlayerAdaptor::notifyPlaybackStatusChanged() {
@@ -136,6 +135,18 @@ void MprisPlayerAdaptor::notifyPlaybackStatusChanged() {
     emitPropertiesChanged(QString::fromLatin1(kPlayerInterface),
                           {{QStringLiteral("PlaybackStatus"), status}});
     emit playbackStatusChanged();
+    notifyCapabilitiesChanged();
+}
+
+void MprisPlayerAdaptor::notifyCapabilitiesChanged() {
+    emitPropertiesChanged(QString::fromLatin1(kPlayerInterface),
+                          {{QStringLiteral("CanPlay"), canPlay()},
+                           {QStringLiteral("CanPause"), canPause()},
+                           {QStringLiteral("CanSeek"), canSeek()},
+                           {QStringLiteral("CanGoNext"), canGoNext()},
+                           {QStringLiteral("CanGoPrevious"), canGoPrevious()},
+                           {QStringLiteral("CanControl"), canControl()}});
+    emit capabilitiesChanged();
 }
 
 qlonglong MprisPlayerAdaptor::currentPositionMicros() const {

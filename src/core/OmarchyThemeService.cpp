@@ -31,6 +31,10 @@ OmarchyThemeService::OmarchyThemeService(QObject *parent) : QObject(parent) {
         Q_UNUSED(path);
         reload();
     });
+    connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, [this](const QString &path) {
+        Q_UNUSED(path);
+        reload();
+    });
     reload();
 }
 
@@ -160,6 +164,28 @@ void OmarchyThemeService::loadColors() {
         }
         m_colorsPath = path;
         m_watcher->addPath(m_colorsPath);
+    }
+    syncWatchPaths(path);
+}
+
+void OmarchyThemeService::syncWatchPaths(const QString &colorsPath) {
+    QStringList wanted;
+    const QString nameFile = expandHome(QStringLiteral("~/.local/state/omarchy/current/theme.name"));
+    wanted << nameFile;
+    wanted << QFileInfo(nameFile).absolutePath();
+    wanted << expandHome(QStringLiteral("~/.local/state/omarchy/current/theme"));
+    if (!colorsPath.isEmpty()) {
+        wanted << colorsPath;
+        wanted << QFileInfo(colorsPath).absolutePath();
+    }
+    for (const QString &path : wanted) {
+        if (path.isEmpty() || m_watchedPaths.contains(path)) {
+            continue;
+        }
+        if (QFile::exists(path) || QDir(path).exists()) {
+            m_watcher->addPath(path);
+            m_watchedPaths.insert(path);
+        }
     }
 }
 

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>ai.commandcode.qt-music</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Qt Music</name>
+  <summary>Local FLAC and Opus music player</summary>
+  <description>
+    <p>
+      A native Qt 6 desktop music player for local FLAC and Opus libraries,
+      with a library browser, libmpv playback, playlists, tag editing,
+      import inbox, synced lyrics, Discogs metadata, and MPRIS2 integration.
+    </p>
+  </description>
+  <launchable type="desktop-id">qt-music.desktop</launchable>
+  <icon type="stock">qt-music</icon>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+  </categories>
+  <keywords>
+    <keyword>music</keyword>
+    <keyword>audio</keyword>
+    <keyword>flac</keyword>
+    <keyword>opus</keyword>
+    <keyword>player</keyword>
+    <keyword>library</keyword>
+  </keywords>
+  <provides>
+    <dbus type="session">org.mpris.MediaPlayer2.qt-music</dbus>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-09-05"/>
+  </releases>
+</component>

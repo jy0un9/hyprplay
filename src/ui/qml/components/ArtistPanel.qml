@@ -27,11 +27,11 @@ Pane {
 
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 200
+            Layout.preferredHeight: Math.min(400, panel.width - Theme.spaceLg * 2)
 
             Rectangle {
                 anchors.centerIn: parent
-                width: Math.min(parent.width - 8, 200)
+                width: Math.min(parent.width, parent.height)
                 height: width
                 radius: Theme.radiusMd
                 color: Theme.rgba(Theme.selection, 0.85)
@@ -46,9 +46,9 @@ Pane {
 
                 Image {
                     anchors.centerIn: parent
-                    width: 56
-                    height: 56
-                    source: Theme.iconUrl("avatar-default-symbolic", 56, Theme.foreground)
+                    width: 72
+                    height: 72
+                    source: Theme.iconUrl("avatar-default-symbolic", 72, Theme.foreground)
                     fillMode: Image.PreserveAspectFit
                     opacity: 0.22
                     visible: media.artistImageUrl.length === 0

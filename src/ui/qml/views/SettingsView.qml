@@ -36,6 +36,23 @@ Pane {
             width: settingsScroll.availableWidth
             spacing: Theme.spaceLg
 
+            WheelHandler {
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: (event) => {
+                    const flick = settingsScroll.contentItem
+                    if (!flick)
+                        return
+                    const dy = event.pixelDelta.y !== 0
+                               ? event.pixelDelta.y * 2
+                               : event.angleDelta.y * 2.5
+                    if (dy === 0)
+                        return
+                    const maxY = Math.max(0, flick.contentHeight - flick.height)
+                    flick.contentY = Math.max(0, Math.min(maxY, flick.contentY - dy))
+                    event.accepted = true
+                }
+            }
+
             Item {
                 Layout.fillWidth: true
                 implicitHeight: headerColumn.implicitHeight
