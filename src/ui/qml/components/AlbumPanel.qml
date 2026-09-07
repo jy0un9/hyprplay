@@ -22,15 +22,6 @@ Pane {
         anchors.fill: parent
         spacing: Theme.spaceMd
 
-        Label {
-            text: "Album"
-            font.bold: true
-            font.pixelSize: Theme.fontSmall
-            opacity: 0.55
-            color: Theme.foreground
-            Layout.alignment: Qt.AlignHCenter
-        }
-
         Item {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(400, panel.width - Theme.spaceLg * 2)
