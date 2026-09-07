@@ -3,17 +3,14 @@
 #include "ConfigService.h"
 #include "DiscogsService.h"
 
-#include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QMetaObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrl>
 #include <QUrlQuery>
-#include <QtConcurrent>
 #include <algorithm>
 
 namespace {
@@ -23,7 +20,8 @@ constexpr char kMbUserAgent[] =
 
 bool isUsableName(const QString &name) {
     const QString trimmed = name.trimmed();
-    return !trimmed.isEmpty() && trimmed.compare(QStringLiteral("Unknown Artist"), Qt::CaseInsensitive) != 0
+    return !trimmed.isEmpty()
+           && trimmed.compare(QStringLiteral("Unknown Artist"), Qt::CaseInsensitive) != 0
            && trimmed.compare(QStringLiteral("Unknown Album"), Qt::CaseInsensitive) != 0;
 }
 
@@ -87,7 +85,8 @@ int albumMatchScore(const QVariantMap &candidate, const QString &album, const QS
         }
     }
     if (!artist.isEmpty()) {
-        if (detail.toLower().contains(artist.toLower()) || title.compare(artist, Qt::CaseInsensitive) == 0) {
+        if (detail.toLower().contains(artist.toLower())
+            || title.compare(artist, Qt::CaseInsensitive) == 0) {
             score += 800;
         }
     }
@@ -109,35 +108,20 @@ QVariantMap candidateRow(const QString &source, const QString &id, const QString
     return row;
 }
 
-QByteArray httpGet(const QUrl &url, const QList<QPair<QByteArray, QByteArray>> &headers) {
-    QNetworkAccessManager manager;
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, QString::fromUtf8(kMbUserAgent));
-    for (const auto &header : headers) {
-        request.setRawHeader(header.first, header.second);
-    }
-    QNetworkReply *reply = manager.get(request);
-    QEventLoop loop;
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-    const QByteArray body = reply->readAll();
-    reply->deleteLater();
-    return body;
-}
-
-QVariantList searchMusicBrainz(const QString &artist, const QString &album) {
-    QVariantList candidates;
+QUrl musicBrainzSearchUrl(const QString &artist, const QString &album) {
     QStringList parts;
     if (isUsableName(album)) {
         QString escaped = album;
-        parts << QStringLiteral("release:\"") + escaped.replace(QLatin1Char('"'), QString()) + QLatin1Char('"');
+        parts << QStringLiteral("release:\"") + escaped.replace(QLatin1Char('"'), QString())
+                    + QLatin1Char('"');
     }
     if (isUsableName(artist)) {
         QString escaped = artist;
-        parts << QStringLiteral("artist:\"") + escaped.replace(QLatin1Char('"'), QString()) + QLatin1Char('"');
+        parts << QStringLiteral("artist:\"") + escaped.replace(QLatin1Char('"'), QString())
+                    + QLatin1Char('"');
     }
     if (parts.isEmpty()) {
-        return candidates;
+        return {};
     }
 
     QUrl url(QStringLiteral("https://musicbrainz.org/ws/2/release/"));
@@ -146,9 +130,28 @@ QVariantList searchMusicBrainz(const QString &artist, const QString &album) {
     query.addQueryItem(QStringLiteral("fmt"), QStringLiteral("json"));
     query.addQueryItem(QStringLiteral("limit"), QStringLiteral("10"));
     url.setQuery(query);
+    return url;
+}
 
-    const QJsonDocument doc = QJsonDocument::fromJson(httpGet(url, {}));
-    const QJsonArray releases = doc.object().value(QStringLiteral("releases")).toArray();
+QUrl discogsSearchUrl(const QString &artist, const QString &album) {
+    QUrl url(QStringLiteral("https://api.discogs.com/database/search"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("type"), QStringLiteral("release"));
+    query.addQueryItem(QStringLiteral("per_page"), QStringLiteral("8"));
+    if (isUsableName(artist)) {
+        query.addQueryItem(QStringLiteral("artist"), artist);
+    }
+    if (isUsableName(album)) {
+        query.addQueryItem(QStringLiteral("release_title"), album);
+    }
+    url.setQuery(query);
+    return url;
+}
+
+QVariantList parseMusicBrainzSearch(const QByteArray &body) {
+    QVariantList candidates;
+    const QJsonArray releases =
+        QJsonDocument::fromJson(body).object().value(QStringLiteral("releases")).toArray();
     for (const QJsonValue &value : releases) {
         const QJsonObject release = value.toObject();
         const QString id = release.value(QStringLiteral("id")).toString();
@@ -166,7 +169,8 @@ QVariantList searchMusicBrainz(const QString &artist, const QString &album) {
         if (!year.isEmpty()) {
             fields.insert(QStringLiteral("year"), year.toInt());
         }
-        const QString detail = year.isEmpty() ? artistName : artistName + QStringLiteral(" · ") + year;
+        const QString detail =
+            year.isEmpty() ? artistName : artistName + QStringLiteral(" · ") + year;
         candidates << candidateRow(QStringLiteral("MusicBrainz"), id, title, detail, fields,
                                    QStringLiteral("https://coverartarchive.org/release/") + id
                                        + QStringLiteral("/front"));
@@ -174,31 +178,14 @@ QVariantList searchMusicBrainz(const QString &artist, const QString &album) {
     return candidates;
 }
 
-QVariantList searchDiscogs(const QString &artist, const QString &album, const QString &token) {
+QVariantList parseDiscogsSearch(const QByteArray &body, const QString &artist) {
     QVariantList candidates;
-    if (token.isEmpty()) {
-        return candidates;
-    }
-
-    QUrl url(QStringLiteral("https://api.discogs.com/database/search"));
-    QUrlQuery query;
-    query.addQueryItem(QStringLiteral("type"), QStringLiteral("release"));
-    query.addQueryItem(QStringLiteral("per_page"), QStringLiteral("8"));
-    if (isUsableName(artist)) {
-        query.addQueryItem(QStringLiteral("artist"), artist);
-    }
-    if (isUsableName(album)) {
-        query.addQueryItem(QStringLiteral("release_title"), album);
-    }
-    url.setQuery(query);
-
-    const QList<QPair<QByteArray, QByteArray>> headers = {
-        {QByteArray("Authorization"), QByteArray("Discogs token=") + token.toUtf8()}};
-    const QJsonDocument doc = QJsonDocument::fromJson(httpGet(url, headers));
-    const QJsonArray results = doc.object().value(QStringLiteral("results")).toArray();
+    const QJsonArray results =
+        QJsonDocument::fromJson(body).object().value(QStringLiteral("results")).toArray();
     for (const QJsonValue &value : results) {
         const QJsonObject result = value.toObject();
-        const QString id = QString::number(result.value(QStringLiteral("id")).toVariant().toULongLong());
+        const QString id =
+            QString::number(result.value(QStringLiteral("id")).toVariant().toULongLong());
         const QString rawTitle = result.value(QStringLiteral("title")).toString();
         const QString artistName = splitDiscogsArtist(rawTitle, artist);
         const QString albumTitle = splitDiscogsAlbum(rawTitle, artist);
@@ -223,27 +210,11 @@ QVariantList searchDiscogs(const QString &artist, const QString &album, const QS
             fields.insert(QStringLiteral("genre"), genres.first().toString());
         }
         const QString coverUrl = result.value(QStringLiteral("cover_image")).toString();
-        const QString detail = year.isEmpty() ? artistName : artistName + QStringLiteral(" · ") + year;
-        candidates << candidateRow(QStringLiteral("Discogs"), id, albumTitle, detail, fields, coverUrl);
+        const QString detail =
+            year.isEmpty() ? artistName : artistName + QStringLiteral(" · ") + year;
+        candidates << candidateRow(QStringLiteral("Discogs"), id, albumTitle, detail, fields,
+                                   coverUrl);
     }
-    return candidates;
-}
-
-struct SearchInput {
-    QString artist;
-    QString album;
-    QString discogsToken;
-};
-
-QVariantList runSearch(const SearchInput &input) {
-    QVariantList candidates = searchMusicBrainz(input.artist, input.album);
-    candidates.append(searchDiscogs(input.artist, input.album, input.discogsToken));
-
-    std::sort(candidates.begin(), candidates.end(), [&](const QVariant &left, const QVariant &right) {
-        const int leftScore = albumMatchScore(left.toMap(), input.album, input.artist);
-        const int rightScore = albumMatchScore(right.toMap(), input.album, input.artist);
-        return leftScore > rightScore;
-    });
     return candidates;
 }
 
@@ -266,16 +237,11 @@ QString fieldLabel(const QString &key) {
 
 const QStringList &fetchFieldOrder() {
     static const QStringList keys = {
-        QStringLiteral("title"),
-        QStringLiteral("artist"),
-        QStringLiteral("albumArtist"),
-        QStringLiteral("album"),
-        QStringLiteral("trackNumber"),
-        QStringLiteral("year"),
-        QStringLiteral("genre"),
-        QStringLiteral("label"),
-        QStringLiteral("country"),
-        QStringLiteral("catalognum"),
+        QStringLiteral("title"),      QStringLiteral("artist"),
+        QStringLiteral("albumArtist"), QStringLiteral("album"),
+        QStringLiteral("trackNumber"), QStringLiteral("year"),
+        QStringLiteral("genre"),      QStringLiteral("label"),
+        QStringLiteral("country"),    QStringLiteral("catalognum"),
         QStringLiteral("mb_albumid"),
     };
     return keys;
@@ -285,7 +251,9 @@ bool fieldsEqual(const QVariant &current, const QVariant &proposed) {
     if (current.typeId() == QMetaType::Int && proposed.typeId() == QMetaType::Int) {
         return current.toInt() == proposed.toInt();
     }
-    return current.toString().trimmed().compare(proposed.toString().trimmed(), Qt::CaseInsensitive) == 0;
+    return current.toString().trimmed().compare(proposed.toString().trimmed(),
+                                                Qt::CaseInsensitive)
+           == 0;
 }
 
 bool proposedFieldEmpty(const QString &key, const QVariant &proposed) {
@@ -322,7 +290,7 @@ int parseTrackNumber(const QString &number) {
     if (trimmed.isEmpty()) {
         return 0;
     }
-    int slash = trimmed.indexOf(QLatin1Char('/'));
+    const int slash = trimmed.indexOf(QLatin1Char('/'));
     const QString head = slash > 0 ? trimmed.left(slash) : trimmed;
     bool ok = false;
     const int parsed = head.toInt(&ok);
@@ -342,28 +310,19 @@ bool trackTitleMatches(const QString &candidateTitle, const QString &targetTitle
            || target.contains(candidate, Qt::CaseInsensitive);
 }
 
-QVariantMap fetchMusicBrainzReleaseDetail(const QString &releaseId, const QString &trackTitle) {
+QVariantMap parseMusicBrainzDetail(const QByteArray &body, const QString &trackTitle) {
     QVariantMap extra;
-    if (releaseId.isEmpty()) {
-        return extra;
-    }
-
-    QUrl url(QStringLiteral("https://musicbrainz.org/ws/2/release/") + releaseId);
-    QUrlQuery query;
-    query.addQueryItem(QStringLiteral("fmt"), QStringLiteral("json"));
-    query.addQueryItem(QStringLiteral("inc"),
-                       QStringLiteral("artist-credits+labels+recordings+release-groups+tags"));
-    url.setQuery(query);
-
-    const QJsonObject release = QJsonDocument::fromJson(httpGet(url, {})).object();
+    const QJsonObject release = QJsonDocument::fromJson(body).object();
     if (release.isEmpty()) {
         return extra;
     }
 
     QString genre = firstTagName(release.value(QStringLiteral("tags")).toArray());
     if (genre.isEmpty()) {
-        genre = firstTagName(
-            release.value(QStringLiteral("release-group")).toObject().value(QStringLiteral("tags")).toArray());
+        genre = firstTagName(release.value(QStringLiteral("release-group"))
+                                .toObject()
+                                .value(QStringLiteral("tags"))
+                                .toArray());
     }
     if (!genre.isEmpty()) {
         extra.insert(QStringLiteral("genre"), genre);
@@ -377,8 +336,11 @@ QVariantMap fetchMusicBrainzReleaseDetail(const QString &releaseId, const QStrin
     const QJsonArray labelInfo = release.value(QStringLiteral("label-info")).toArray();
     if (!labelInfo.isEmpty()) {
         const QJsonObject firstLabel = labelInfo.first().toObject();
-        const QString label =
-            firstLabel.value(QStringLiteral("label")).toObject().value(QStringLiteral("name")).toString().trimmed();
+        const QString label = firstLabel.value(QStringLiteral("label"))
+                                  .toObject()
+                                  .value(QStringLiteral("name"))
+                                  .toString()
+                                  .trimmed();
         if (!label.isEmpty()) {
             extra.insert(QStringLiteral("label"), label);
         }
@@ -392,7 +354,8 @@ QVariantMap fetchMusicBrainzReleaseDetail(const QString &releaseId, const QStrin
     if (!trackTitle.trimmed().isEmpty()) {
         const QJsonArray media = release.value(QStringLiteral("media")).toArray();
         for (const QJsonValue &mediumValue : media) {
-            const QJsonArray tracks = mediumValue.toObject().value(QStringLiteral("tracks")).toArray();
+            const QJsonArray tracks =
+                mediumValue.toObject().value(QStringLiteral("tracks")).toArray();
             for (const QJsonValue &trackValue : tracks) {
                 const QJsonObject track = trackValue.toObject();
                 const QString title = track.value(QStringLiteral("title")).toString();
@@ -400,7 +363,8 @@ QVariantMap fetchMusicBrainzReleaseDetail(const QString &releaseId, const QStrin
                     continue;
                 }
                 extra.insert(QStringLiteral("title"), title.trimmed());
-                const int trackNumber = parseTrackNumber(track.value(QStringLiteral("number")).toString());
+                const int trackNumber =
+                    parseTrackNumber(track.value(QStringLiteral("number")).toString());
                 if (trackNumber > 0) {
                     extra.insert(QStringLiteral("trackNumber"), trackNumber);
                 }
@@ -415,17 +379,9 @@ QVariantMap fetchMusicBrainzReleaseDetail(const QString &releaseId, const QStrin
     return extra;
 }
 
-QVariantMap fetchDiscogsReleaseDetail(const QString &releaseId, const QString &trackTitle,
-                                      const QString &token) {
+QVariantMap parseDiscogsDetail(const QByteArray &body, const QString &trackTitle) {
     QVariantMap extra;
-    if (releaseId.isEmpty() || token.isEmpty()) {
-        return extra;
-    }
-
-    QUrl url(QStringLiteral("https://api.discogs.com/releases/") + releaseId);
-    const QList<QPair<QByteArray, QByteArray>> headers = {
-        {QByteArray("Authorization"), QByteArray("Discogs token=") + token.toUtf8()}};
-    const QJsonObject release = QJsonDocument::fromJson(httpGet(url, headers)).object();
+    const QJsonObject release = QJsonDocument::fromJson(body).object();
     if (release.isEmpty()) {
         return extra;
     }
@@ -470,8 +426,9 @@ QVariantMap fetchDiscogsReleaseDetail(const QString &releaseId, const QString &t
             if (track.value(QStringLiteral("type_")).toString() == QStringLiteral("track")
                 && trackTitleMatches(track.value(QStringLiteral("title")).toString(), trackTitle)) {
                 extra.insert(QStringLiteral("title"),
-                              track.value(QStringLiteral("title")).toString().trimmed());
-                const int trackNumber = parseTrackNumber(track.value(QStringLiteral("position")).toString());
+                             track.value(QStringLiteral("title")).toString().trimmed());
+                const int trackNumber =
+                    parseTrackNumber(track.value(QStringLiteral("position")).toString());
                 if (trackNumber > 0) {
                     extra.insert(QStringLiteral("trackNumber"), trackNumber);
                 }
@@ -486,25 +443,67 @@ QVariantMap fetchDiscogsReleaseDetail(const QString &releaseId, const QString &t
 } // namespace
 
 MetadataSearchService::MetadataSearchService(ConfigService *config, DiscogsService *discogs,
-                                               QObject *parent)
+                                             QObject *parent)
     : QObject(parent), m_config(config), m_discogs(discogs) {
     Q_UNUSED(m_config);
+    m_network = new QNetworkAccessManager(this);
+}
+
+MetadataSearchService::~MetadataSearchService() {
+    abortNetwork();
 }
 
 QVariantMap MetadataSearchService::normalizeCandidateFields(const QVariantMap &fields) {
     QVariantMap normalized = fields;
     if (normalized.contains(QStringLiteral("albumartist"))) {
-        normalized.insert(QStringLiteral("albumArtist"), normalized.take(QStringLiteral("albumartist")));
+        normalized.insert(QStringLiteral("albumArtist"),
+                          normalized.take(QStringLiteral("albumartist")));
     }
     return normalized;
 }
 
+void MetadataSearchService::abortNetwork() {
+    if (!m_reply) {
+        return;
+    }
+    QObject::disconnect(m_reply, nullptr, this, nullptr);
+    m_reply->abort();
+    m_reply->deleteLater();
+    m_reply = nullptr;
+    m_pendingKind = PendingKind::None;
+}
+
+void MetadataSearchService::startGet(const QUrl &url,
+                                     const QList<QPair<QByteArray, QByteArray>> &headers,
+                                     PendingKind kind) {
+    abortNetwork();
+    if (!url.isValid()) {
+        m_pendingKind = PendingKind::None;
+        return;
+    }
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, QString::fromUtf8(kMbUserAgent));
+    request.setTransferTimeout(20000);
+    for (const auto &header : headers) {
+        request.setRawHeader(header.first, header.second);
+    }
+    m_pendingKind = kind;
+    m_reply = m_network->get(request);
+    connect(m_reply, &QNetworkReply::finished, this, &MetadataSearchService::onReplyFinished);
+}
+
 void MetadataSearchService::clear() {
     ++m_detailFetchId;
+    ++m_searchId;
+    abortNetwork();
+    m_searchesRemaining = 0;
+    m_searchAccum.clear();
     m_candidates.clear();
     m_selectedIndex = -1;
     m_currentFields.clear();
     m_fieldChecked.clear();
+    setSearching(false);
     emit candidatesChanged();
     emit selectedIndexChanged();
     emit fieldChoicesChanged();
@@ -517,7 +516,8 @@ void MetadataSearchService::setCurrentFields(const QVariantMap &fields) {
 
 void MetadataSearchService::searchRelease(const QString &artist, const QString &album,
                                           const QString &albumArtist) {
-    const QString searchArtist = albumArtist.trimmed().isEmpty() ? artist.trimmed() : albumArtist.trimmed();
+    const QString searchArtist =
+        albumArtist.trimmed().isEmpty() ? artist.trimmed() : albumArtist.trimmed();
     if (!isUsableName(searchArtist) && !isUsableName(album)) {
         setStatus(QStringLiteral("Need an artist or album name to search"));
         emit searchFinished(false);
@@ -528,6 +528,14 @@ void MetadataSearchService::searchRelease(const QString &artist, const QString &
     m_currentFields.insert(QStringLiteral("album"), album);
     m_currentFields.insert(QStringLiteral("albumArtist"), searchArtist);
 
+    ++m_searchId;
+    ++m_detailFetchId;
+    abortNetwork();
+    m_searchArtist = searchArtist;
+    m_searchAlbum = album.trimmed();
+    m_searchAccum.clear();
+    m_searchesRemaining = 0;
+
     setSearching(true);
     setStatus(QStringLiteral("Searching MusicBrainz and Discogs…"));
     m_candidates.clear();
@@ -536,28 +544,112 @@ void MetadataSearchService::searchRelease(const QString &artist, const QString &
     emit candidatesChanged();
     emit selectedIndexChanged();
 
-    SearchInput input;
-    input.artist = searchArtist;
-    input.album = album.trimmed();
-    input.discogsToken = m_discogs ? m_discogs->loadToken() : QString();
+    const QUrl mbUrl = musicBrainzSearchUrl(m_searchArtist, m_searchAlbum);
+    const QString token = m_discogs ? m_discogs->loadToken() : QString();
+    const QUrl discogsUrl = token.isEmpty() ? QUrl() : discogsSearchUrl(m_searchArtist, m_searchAlbum);
 
-    MetadataSearchService *self = this;
-    (void)QtConcurrent::run([self, input]() {
-        const QVariantList results = runSearch(input);
-        QMetaObject::invokeMethod(self, [self, results]() {
-            self->m_candidates = results;
-            self->setSearching(false);
-            if (results.isEmpty()) {
-                self->setStatus(QStringLiteral("No matching releases found"));
-                emit self->searchFinished(false);
-            } else {
-                self->setStatus(QStringLiteral("Found %1 release(s) — select one").arg(results.size()));
-                self->setSelectedIndex(0);
-                emit self->searchFinished(true);
-            }
-            emit self->candidatesChanged();
-        }, Qt::QueuedConnection);
+    // Sequential: MusicBrainz first, then Discogs — one in-flight reply at a time.
+    if (mbUrl.isValid()) {
+        m_searchesRemaining = discogsUrl.isValid() ? 2 : 1;
+        startGet(mbUrl, {}, PendingKind::SearchMusicBrainz);
+        return;
+    }
+    if (discogsUrl.isValid()) {
+        m_searchesRemaining = 1;
+        const QList<QPair<QByteArray, QByteArray>> headers = {
+            {QByteArray("Authorization"), QByteArray("Discogs token=") + token.toUtf8()}};
+        startGet(discogsUrl, headers, PendingKind::SearchDiscogs);
+        return;
+    }
+
+    setSearching(false);
+    setStatus(QStringLiteral("No matching releases found"));
+    emit searchFinished(false);
+}
+
+void MetadataSearchService::finishSearchIfReady() {
+    if (m_searchesRemaining > 0) {
+        return;
+    }
+
+    QVariantList results = m_searchAccum;
+    std::sort(results.begin(), results.end(), [&](const QVariant &left, const QVariant &right) {
+        return albumMatchScore(left.toMap(), m_searchAlbum, m_searchArtist)
+               > albumMatchScore(right.toMap(), m_searchAlbum, m_searchArtist);
     });
+
+    m_candidates = results;
+    setSearching(false);
+    if (results.isEmpty()) {
+        setStatus(QStringLiteral("No matching releases found"));
+        emit searchFinished(false);
+    } else {
+        setStatus(QStringLiteral("Found %1 release(s) — select one").arg(results.size()));
+        setSelectedIndex(0);
+        emit searchFinished(true);
+    }
+    emit candidatesChanged();
+}
+
+void MetadataSearchService::onReplyFinished() {
+    QNetworkReply *reply = m_reply;
+    m_reply = nullptr;
+    if (!reply) {
+        return;
+    }
+    reply->deleteLater();
+
+    const PendingKind kind = m_pendingKind;
+    m_pendingKind = PendingKind::None;
+    const bool netOk = reply->error() == QNetworkReply::NoError;
+    const QByteArray body = netOk ? reply->readAll() : QByteArray();
+
+    switch (kind) {
+    case PendingKind::SearchMusicBrainz: {
+        if (netOk) {
+            m_searchAccum.append(parseMusicBrainzSearch(body));
+        }
+        --m_searchesRemaining;
+        const QString token = m_discogs ? m_discogs->loadToken() : QString();
+        const QUrl discogsUrl =
+            token.isEmpty() ? QUrl() : discogsSearchUrl(m_searchArtist, m_searchAlbum);
+        if (discogsUrl.isValid() && m_searchesRemaining > 0) {
+            const QList<QPair<QByteArray, QByteArray>> headers = {
+                {QByteArray("Authorization"), QByteArray("Discogs token=") + token.toUtf8()}};
+            startGet(discogsUrl, headers, PendingKind::SearchDiscogs);
+        } else {
+            m_searchesRemaining = 0;
+            finishSearchIfReady();
+        }
+        break;
+    }
+    case PendingKind::SearchDiscogs: {
+        if (netOk) {
+            m_searchAccum.append(parseDiscogsSearch(body, m_searchArtist));
+        }
+        m_searchesRemaining = 0;
+        finishSearchIfReady();
+        break;
+    }
+    case PendingKind::DetailMusicBrainz: {
+        const int fetchId = m_detailFetchId;
+        const int index = m_detailIndex;
+        const QString trackTitle = m_currentFields.value(QStringLiteral("title")).toString();
+        applyReleaseDetailFields(index, fetchId,
+                                 netOk ? parseMusicBrainzDetail(body, trackTitle) : QVariantMap{});
+        break;
+    }
+    case PendingKind::DetailDiscogs: {
+        const int fetchId = m_detailFetchId;
+        const int index = m_detailIndex;
+        const QString trackTitle = m_currentFields.value(QStringLiteral("title")).toString();
+        applyReleaseDetailFields(index, fetchId,
+                                 netOk ? parseDiscogsDetail(body, trackTitle) : QVariantMap{});
+        break;
+    }
+    case PendingKind::None:
+        break;
+    }
 }
 
 void MetadataSearchService::setSelectedIndex(int index) {
@@ -585,29 +677,32 @@ void MetadataSearchService::beginReleaseDetailFetch(int index) {
         return;
     }
 
-    const QString trackTitle = m_currentFields.value(QStringLiteral("title")).toString();
     const int fetchId = ++m_detailFetchId;
+    m_detailIndex = index;
+    Q_UNUSED(fetchId);
     setStatus(QStringLiteral("Loading release details…"));
 
-    MetadataSearchService *self = this;
     if (source == QStringLiteral("MusicBrainz")) {
-        (void)QtConcurrent::run([self, index, fetchId, id, trackTitle]() {
-            const QVariantMap extra = fetchMusicBrainzReleaseDetail(id, trackTitle);
-            QMetaObject::invokeMethod(self, [self, index, fetchId, extra]() {
-                self->applyReleaseDetailFields(index, fetchId, extra);
-            }, Qt::QueuedConnection);
-        });
+        QUrl url(QStringLiteral("https://musicbrainz.org/ws/2/release/") + id);
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("fmt"), QStringLiteral("json"));
+        query.addQueryItem(
+            QStringLiteral("inc"),
+            QStringLiteral("artist-credits+labels+recordings+release-groups+tags"));
+        url.setQuery(query);
+        startGet(url, {}, PendingKind::DetailMusicBrainz);
         return;
     }
 
     if (source == QStringLiteral("Discogs")) {
-        const QString token = self->m_discogs ? self->m_discogs->loadToken() : QString();
-        (void)QtConcurrent::run([self, index, fetchId, id, trackTitle, token]() {
-            const QVariantMap extra = fetchDiscogsReleaseDetail(id, trackTitle, token);
-            QMetaObject::invokeMethod(self, [self, index, fetchId, extra]() {
-                self->applyReleaseDetailFields(index, fetchId, extra);
-            }, Qt::QueuedConnection);
-        });
+        const QString token = m_discogs ? m_discogs->loadToken() : QString();
+        if (token.isEmpty()) {
+            return;
+        }
+        QUrl url(QStringLiteral("https://api.discogs.com/releases/") + id);
+        const QList<QPair<QByteArray, QByteArray>> headers = {
+            {QByteArray("Authorization"), QByteArray("Discogs token=") + token.toUtf8()}};
+        startGet(url, headers, PendingKind::DetailDiscogs);
     }
 }
 

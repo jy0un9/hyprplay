@@ -11,6 +11,9 @@ Control {
     property real hoverX: -1
     property real dragRatio: -1
 
+    Accessible.name: "Seek"
+    Accessible.role: Accessible.Slider
+
     readonly property real displayRatio: root.dragRatio >= 0 ? root.dragRatio : root.progressRatio
     readonly property real hoverRatio: {
         if (hoverX < 0 || canvas.width <= 0)

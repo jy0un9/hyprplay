@@ -39,6 +39,13 @@ Dialog {
             Layout.fillWidth: true
         }
 
+        Label {
+            visible: App.discogs.busy && App.albumDiscogsCandidates.length === 0
+            text: App.discogs.status.length > 0 ? App.discogs.status : "Searching Discogs…"
+            opacity: 0.7
+            Layout.fillWidth: true
+        }
+
         ListView {
             id: candidates
             Layout.fillWidth: true
@@ -46,6 +53,7 @@ Dialog {
             clip: true
             model: App.albumDiscogsCandidates
             currentIndex: App.albumDiscogsSelectedIndex
+            visible: !App.discogs.busy || App.albumDiscogsCandidates.length > 0
 
             delegate: ItemDelegate {
                 width: candidates.width
@@ -74,12 +82,15 @@ Dialog {
         }
 
         Label {
-            text: App.albumDiscogsCandidates.length === 0
-                  ? "No Discogs releases found."
-                  : "Choose one release, then fetch its description and artwork."
+            text: App.discogs.busy && App.albumDiscogsCandidates.length === 0
+                  ? ""
+                  : (App.albumDiscogsCandidates.length === 0
+                     ? "No Discogs releases found."
+                     : "Choose one release, then fetch its description and artwork.")
             opacity: 0.6
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
+            visible: text.length > 0
         }
     }
 

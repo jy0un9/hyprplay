@@ -19,16 +19,11 @@ struct LyricsConfig {
     int slowIntervalSecs = 4;
 };
 
-struct EqualizerConfig {
-    bool enabled = true;
-    QString preset = QStringLiteral("Flat");
-    QList<double> gains = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-};
-
 class ConfigService : public QObject {
     Q_OBJECT
     Q_PROPERTY(QStringList libraryPaths READ libraryPaths NOTIFY configChanged)
     Q_PROPERTY(bool scanOnLaunch READ scanOnLaunch WRITE setScanOnLaunch NOTIFY configChanged)
+    Q_PROPERTY(bool libraryWatchEnabled READ libraryWatchEnabled WRITE setLibraryWatchEnabled NOTIFY configChanged)
     Q_PROPERTY(QString playlistsDir READ playlistsDir NOTIFY configChanged)
     Q_PROPERTY(QString importInbox READ importInbox WRITE setImportInbox NOTIFY configChanged)
     Q_PROPERTY(QString beetsBinary READ beetsBinary WRITE setBeetsBinary NOTIFY configChanged)
@@ -49,19 +44,18 @@ class ConfigService : public QObject {
     Q_PROPERTY(bool wasdNavigation READ wasdNavigation WRITE setWasdNavigation NOTIFY configChanged)
     Q_PROPERTY(bool tooltipsEnabled READ tooltipsEnabled WRITE setTooltipsEnabled NOTIFY configChanged)
 
-    Q_PROPERTY(int layoutSidebarWidth READ layoutSidebarWidth WRITE setLayoutSidebarWidth NOTIFY layoutChanged)
     Q_PROPERTY(int layoutSidePanelWidth READ layoutSidePanelWidth WRITE setLayoutSidePanelWidth NOTIFY layoutChanged)
     Q_PROPERTY(int layoutNowPlayingHeight READ layoutNowPlayingHeight WRITE setLayoutNowPlayingHeight NOTIFY layoutChanged)
     Q_PROPERTY(int layoutLibraryArtistsWidth READ layoutLibraryArtistsWidth WRITE setLayoutLibraryArtistsWidth NOTIFY layoutChanged)
     Q_PROPERTY(int layoutLibraryAlbumsWidth READ layoutLibraryAlbumsWidth WRITE setLayoutLibraryAlbumsWidth NOTIFY layoutChanged)
     Q_PROPERTY(int layoutPlaylistsListWidth READ layoutPlaylistsListWidth WRITE setLayoutPlaylistsListWidth NOTIFY layoutChanged)
-    Q_PROPERTY(bool layoutSidebarCollapsed READ layoutSidebarCollapsed WRITE setLayoutSidebarCollapsed NOTIFY layoutChanged)
 
 public:
     explicit ConfigService(QObject *parent = nullptr);
 
     QStringList libraryPaths() const { return m_libraryPaths; }
     bool scanOnLaunch() const { return m_scanOnLaunch; }
+    bool libraryWatchEnabled() const { return m_libraryWatchEnabled; }
     QString playlistsDir() const { return m_playlistsDir; }
     QString importInbox() const { return m_importInbox; }
     QString importInboxPath() const;
@@ -83,18 +77,18 @@ public:
     bool wasdNavigation() const { return m_wasdNavigation; }
     bool tooltipsEnabled() const { return m_tooltipsEnabled; }
 
-    int layoutSidebarWidth() const { return m_layoutSidebarWidth; }
     int layoutSidePanelWidth() const { return m_layoutSidePanelWidth; }
     int layoutNowPlayingHeight() const { return m_layoutNowPlayingHeight; }
     int layoutLibraryArtistsWidth() const { return m_layoutLibraryArtistsWidth; }
     int layoutLibraryAlbumsWidth() const { return m_layoutLibraryAlbumsWidth; }
     int layoutPlaylistsListWidth() const { return m_layoutPlaylistsListWidth; }
-    bool layoutSidebarCollapsed() const { return m_layoutSidebarCollapsed; }
 
     Q_INVOKABLE void load();
     Q_INVOKABLE void save();
     Q_INVOKABLE void saveOnExit();
+    Q_INVOKABLE QString secretsStorageDescription() const;
     Q_INVOKABLE void setScanOnLaunch(bool enabled);
+    Q_INVOKABLE void setLibraryWatchEnabled(bool enabled);
     Q_INVOKABLE void setLibraryPaths(const QString &paths);
     Q_INVOKABLE void setLyricsDir(const QString &path);
     Q_INVOKABLE void setVolume(int volume);
@@ -113,13 +107,11 @@ public:
     Q_INVOKABLE void setUiFontSize(int size);
     Q_INVOKABLE void setWasdNavigation(bool enabled);
     Q_INVOKABLE void setTooltipsEnabled(bool enabled);
-    Q_INVOKABLE void setLayoutSidebarWidth(int width);
     Q_INVOKABLE void setLayoutSidePanelWidth(int width);
     Q_INVOKABLE void setLayoutNowPlayingHeight(int height);
     Q_INVOKABLE void setLayoutLibraryArtistsWidth(int width);
     Q_INVOKABLE void setLayoutLibraryAlbumsWidth(int width);
     Q_INVOKABLE void setLayoutPlaylistsListWidth(int width);
-    Q_INVOKABLE void setLayoutSidebarCollapsed(bool collapsed);
     Q_INVOKABLE QVariant layoutSplitState(const QString &name) const;
     Q_INVOKABLE void setLayoutSplitState(const QString &name, const QVariant &state);
     Q_INVOKABLE QString expandPath(const QString &path) const;
@@ -136,12 +128,12 @@ private:
 
     QStringList m_libraryPaths;
     bool m_scanOnLaunch = true;
+    bool m_libraryWatchEnabled = true;
     QString m_playlistsDir;
     QString m_lyricsDir;
     QString m_importInbox;
     PlaybackConfig m_playback;
     LyricsConfig m_lyrics;
-    EqualizerConfig m_equalizer;
     QString m_beetsBinary = QStringLiteral("beet");
     bool m_beetsNomove = true;
     QString m_uiFontFamily = QStringLiteral("JetBrainsMono Nerd Font");
@@ -149,13 +141,11 @@ private:
     bool m_wasdNavigation = false;
     bool m_tooltipsEnabled = true;
 
-    int m_layoutSidebarWidth = 208;
     int m_layoutSidePanelWidth = 300;
     int m_layoutNowPlayingHeight = 96;
     int m_layoutLibraryArtistsWidth = 220;
     int m_layoutLibraryAlbumsWidth = 240;
     int m_layoutPlaylistsListWidth = 260;
-    bool m_layoutSidebarCollapsed = false;
 
     QVariantMap m_layoutSplitStates;
 

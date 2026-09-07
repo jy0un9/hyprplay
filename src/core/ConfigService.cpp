@@ -1,4 +1,5 @@
 #include "ConfigService.h"
+#include "SecretsStore.h"
 
 #include <QMetaType>
 #include <QDir>
@@ -52,6 +53,10 @@ QString ConfigService::configFilePath() const {
     return dir + QStringLiteral("/config.toml");
 }
 
+QString ConfigService::secretsStorageDescription() const {
+    return SecretsStore::storageDescription();
+}
+
 QString ConfigService::expandPath(const QString &path) const {
     if (path.startsWith("~/")) {
         return QDir::homePath() + path.mid(1);
@@ -80,6 +85,11 @@ void ConfigService::ensureDefaults() {
 }
 
 void ConfigService::load() {
+    SecretsStore::hardenFilePermissions();
+    // Touch load paths so any existing plaintext tokens migrate into the keyring.
+    SecretsStore::load(SecretsStore::Key::DiscogsToken);
+    SecretsStore::load(SecretsStore::Key::GeniusToken);
+
     const QString path = configFilePath();
     if (!QFile::exists(path)) {
         ensureDefaults();
@@ -126,6 +136,9 @@ void ConfigService::load() {
                 }
             } else if (key == QLatin1String("scan_on_launch")) {
                 m_scanOnLaunch =
+                    value != QLatin1String("false") && value != QLatin1String("0");
+            } else if (key == QLatin1String("library_watch")) {
+                m_libraryWatchEnabled =
                     value != QLatin1String("false") && value != QLatin1String("0");
             } else if (key == QLatin1String("lyrics_dir")) {
                 m_lyricsDir = unquote(value);
@@ -188,12 +201,7 @@ void ConfigService::load() {
                 }
             } else {
                 const int intValue = value.toInt();
-                if (key == QLatin1String("sidebar_width")) {
-                    m_layoutSidebarWidth = intValue;
-                } else if (key == QLatin1String("sidebar_collapsed")) {
-                    m_layoutSidebarCollapsed =
-                        value == QLatin1String("true") || value == QLatin1String("1");
-                } else if (key == QLatin1String("side_panel_width")) {
+                if (key == QLatin1String("side_panel_width")) {
                     m_layoutSidePanelWidth = intValue;
                 } else if (key == QLatin1String("now_playing_height")) {
                     m_layoutNowPlayingHeight = intValue;
@@ -204,12 +212,12 @@ void ConfigService::load() {
                 } else if (key == QLatin1String("playlists_list_width")) {
                     m_layoutPlaylistsListWidth = intValue;
                 }
+                // Ignore legacy sidebar_width / sidebar_collapsed keys.
             }
         }
     }
 
     ensureDefaults();
-    m_layoutSidebarWidth = qBound(168, m_layoutSidebarWidth, 360);
     m_layoutSidePanelWidth = qBound(220, m_layoutSidePanelWidth, 480);
     m_layoutNowPlayingHeight = qBound(96, m_layoutNowPlayingHeight, 240);
     m_layoutLibraryArtistsWidth = qBound(140, m_layoutLibraryArtistsWidth, 420);
@@ -240,6 +248,7 @@ void ConfigService::save() {
     }
     out << "]\n";
     out << "scan_on_launch = " << (m_scanOnLaunch ? "true" : "false") << "\n";
+    out << "library_watch = " << (m_libraryWatchEnabled ? "true" : "false") << "\n";
     if (!m_lyricsDir.isEmpty()) {
         out << "lyrics_dir = \"" << m_lyricsDir << "\"\n";
     }
@@ -275,8 +284,6 @@ void ConfigService::save() {
     out << "slow_interval_secs = " << m_lyrics.slowIntervalSecs << "\n\n";
 
     out << "[layout]\n";
-    out << "sidebar_collapsed = " << (m_layoutSidebarCollapsed ? "true" : "false") << "\n";
-    out << "sidebar_width = " << m_layoutSidebarWidth << "\n";
     out << "side_panel_width = " << m_layoutSidePanelWidth << "\n";
     out << "now_playing_height = " << m_layoutNowPlayingHeight << "\n";
     out << "library_artists_width = " << m_layoutLibraryArtistsWidth << "\n";
@@ -303,6 +310,14 @@ void ConfigService::setScanOnLaunch(bool enabled) {
     m_scanOnLaunch = enabled;
     emit configChanged();
     save();
+}
+
+void ConfigService::setLibraryWatchEnabled(bool enabled) {
+    if (m_libraryWatchEnabled == enabled) {
+        return;
+    }
+    m_libraryWatchEnabled = enabled;
+    emit configChanged();
 }
 
 void ConfigService::setLibraryPaths(const QString &paths) {
@@ -496,10 +511,6 @@ void ConfigService::setLayoutValue(int &field, int value, int min, int max) {
     scheduleLayoutSave();
 }
 
-void ConfigService::setLayoutSidebarWidth(int width) {
-    setLayoutValue(m_layoutSidebarWidth, width, 168, 360);
-}
-
 void ConfigService::setLayoutSidePanelWidth(int width) {
     setLayoutValue(m_layoutSidePanelWidth, width, 220, 480);
 }
@@ -518,15 +529,6 @@ void ConfigService::setLayoutLibraryAlbumsWidth(int width) {
 
 void ConfigService::setLayoutPlaylistsListWidth(int width) {
     setLayoutValue(m_layoutPlaylistsListWidth, width, 180, 420);
-}
-
-void ConfigService::setLayoutSidebarCollapsed(bool collapsed) {
-    if (m_layoutSidebarCollapsed == collapsed) {
-        return;
-    }
-    m_layoutSidebarCollapsed = collapsed;
-    emit layoutChanged();
-    scheduleLayoutSave();
 }
 
 QVariant ConfigService::layoutSplitState(const QString &name) const {

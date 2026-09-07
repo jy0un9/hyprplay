@@ -182,7 +182,7 @@ bool convertFlacToOpus(const QString &flacPath, const QString &opusPath) {
            && ffmpeg.exitCode() == 0 && QFile::exists(opusPath);
 }
 
-QVariantList discoverAlbums(const QString &inboxRoot) {
+QVariantList discoverAlbums(const QString &inboxRoot, const QString &musicDir) {
     QHash<QString, QStringList> byDir;
     QDirIterator it(inboxRoot, QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
@@ -204,12 +204,19 @@ QVariantList discoverAlbums(const QString &inboxRoot) {
         QStringList flacs = it.value();
         std::sort(flacs.begin(), flacs.end());
 
+        const QString destDir =
+            musicDir.isEmpty()
+                ? QString()
+                : QDir(musicDir).absoluteFilePath(artist + QLatin1Char('/') + album);
+
         QVariantMap row;
         row.insert(QStringLiteral("sourceDir"), it.key());
         row.insert(QStringLiteral("artist"), artist);
         row.insert(QStringLiteral("album"), album);
         row.insert(QStringLiteral("trackCount"), flacs.size());
         row.insert(QStringLiteral("flacs"), flacs);
+        row.insert(QStringLiteral("destDir"), destDir);
+        row.insert(QStringLiteral("selected"), true);
         albums << row;
     }
 
@@ -237,6 +244,27 @@ ImportService::ImportService(ConfigService *config, LibraryService *library, Tag
       m_tags(tags),
       m_beets(beets) {}
 
+QString ImportService::musicLibraryRoot() const {
+    if (!m_config || m_config->libraryPaths().isEmpty()) {
+        return {};
+    }
+    return m_config->expandPath(m_config->libraryPaths().constFirst());
+}
+
+QString ImportService::destinationRoot() const {
+    return musicLibraryRoot();
+}
+
+int ImportService::selectedCount() const {
+    int count = 0;
+    for (const QVariant &item : m_albums) {
+        if (item.toMap().value(QStringLiteral("selected"), true).toBool()) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 void ImportService::scanInbox() {
     if (!m_config) {
         setStatus(QStringLiteral("Config unavailable"));
@@ -251,11 +279,41 @@ void ImportService::scanInbox() {
         return;
     }
 
-    m_albums = discoverAlbums(inbox);
+    m_albums = discoverAlbums(inbox, musicLibraryRoot());
     emit albumsChanged();
     setStatus(m_albums.isEmpty()
                   ? QStringLiteral("No FLAC albums found in inbox")
-                  : QStringLiteral("Found %1 album(s)").arg(m_albums.size()));
+                  : QStringLiteral("Found %1 album(s) — review destinations, then import")
+                        .arg(m_albums.size()));
+}
+
+void ImportService::setAlbumSelected(int index, bool selected) {
+    if (index < 0 || index >= m_albums.size()) {
+        return;
+    }
+    QVariantMap row = m_albums.at(index).toMap();
+    if (row.value(QStringLiteral("selected"), true).toBool() == selected) {
+        return;
+    }
+    row.insert(QStringLiteral("selected"), selected);
+    m_albums[index] = row;
+    emit albumsChanged();
+}
+
+void ImportService::setAllAlbumsSelected(bool selected) {
+    bool changed = false;
+    for (int i = 0; i < m_albums.size(); ++i) {
+        QVariantMap row = m_albums.at(i).toMap();
+        if (row.value(QStringLiteral("selected"), true).toBool() == selected) {
+            continue;
+        }
+        row.insert(QStringLiteral("selected"), selected);
+        m_albums[i] = row;
+        changed = true;
+    }
+    if (changed) {
+        emit albumsChanged();
+    }
 }
 
 void ImportService::cancelImport() {
@@ -267,26 +325,38 @@ void ImportService::startImport(bool runBeets) {
         return;
     }
 
-    const QString musicDir = m_config->expandPath(m_config->libraryPaths().value(0));
+    const QString musicDir = musicLibraryRoot();
     if (musicDir.isEmpty()) {
         setStatus(QStringLiteral("Library path not configured"));
+        return;
+    }
+
+    QVariantList selectedAlbums;
+    for (const QVariant &item : m_albums) {
+        const QVariantMap album = item.toMap();
+        if (!album.value(QStringLiteral("selected"), true).toBool()) {
+            continue;
+        }
+        selectedAlbums << album;
+    }
+    if (selectedAlbums.isEmpty()) {
+        setStatus(QStringLiteral("No albums selected"));
         return;
     }
 
     m_cancelRequested = false;
     setImporting(true);
     setProgress(0);
-    setStatus(QStringLiteral("Importing inbox…"));
+    setStatus(QStringLiteral("Importing %1 album(s)…").arg(selectedAlbums.size()));
 
-    const QVariantList albums = m_albums;
     ImportService *self = this;
 
-    (void)QtConcurrent::run([self, albums, musicDir, runBeets]() {
+    (void)QtConcurrent::run([self, selectedAlbums, musicDir, runBeets]() {
         int done = 0;
-        const int total = albums.size();
+        const int total = selectedAlbums.size();
         bool success = true;
 
-        for (const QVariant &item : albums) {
+        for (const QVariant &item : selectedAlbums) {
             if (self->m_cancelRequested) {
                 success = false;
                 break;
@@ -296,11 +366,12 @@ void ImportService::startImport(bool runBeets) {
             const QString sourceDir = album.value(QStringLiteral("sourceDir")).toString();
             const QString artist = album.value(QStringLiteral("artist")).toString();
             const QString albumName = album.value(QStringLiteral("album")).toString();
-            const QStringList flacs =
-                album.value(QStringLiteral("flacs")).toStringList();
+            const QStringList flacs = album.value(QStringLiteral("flacs")).toStringList();
 
-            const QString destDir =
-                QDir(musicDir).absoluteFilePath(artist + QLatin1Char('/') + albumName);
+            QString destDir = album.value(QStringLiteral("destDir")).toString();
+            if (destDir.isEmpty()) {
+                destDir = QDir(musicDir).absoluteFilePath(artist + QLatin1Char('/') + albumName);
+            }
             QDir().mkpath(destDir);
 
             for (const QString &flac : flacs) {
@@ -336,11 +407,10 @@ void ImportService::startImport(bool runBeets) {
 
             ++done;
             const int percent = total > 0 ? (done * 100) / total : 100;
-            const QString status =
-                QStringLiteral("Imported %1 — %2 (%3/%4)")
-                    .arg(artist, albumName)
-                    .arg(done)
-                    .arg(total);
+            const QString status = QStringLiteral("Imported %1 — %2 (%3/%4)")
+                                       .arg(artist, albumName)
+                                       .arg(done)
+                                       .arg(total);
             QMetaObject::invokeMethod(self, [self, percent, status]() {
                 self->setProgress(percent);
                 self->setStatus(status);

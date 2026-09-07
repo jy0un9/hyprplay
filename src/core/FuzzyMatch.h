@@ -2,6 +2,7 @@
 
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 
 bool fuzzyMatch(const QString &text, const QString &query);
 QList<int> fuzzyMatchPositions(const QString &text, const QString &query);

@@ -7,6 +7,8 @@
 
 class ConfigService;
 class DiscogsService;
+class QNetworkAccessManager;
+class QNetworkReply;
 
 class MetadataSearchService : public QObject {
     Q_OBJECT
@@ -20,6 +22,7 @@ class MetadataSearchService : public QObject {
 public:
     explicit MetadataSearchService(ConfigService *config, DiscogsService *discogs,
                                    QObject *parent = nullptr);
+    ~MetadataSearchService() override;
 
     bool searching() const { return m_searching; }
     QString status() const { return m_status; }
@@ -46,14 +49,23 @@ signals:
     void searchFinished(bool success);
 
 private:
+    enum class PendingKind { None, SearchMusicBrainz, SearchDiscogs, DetailMusicBrainz, DetailDiscogs };
+
     void setSearching(bool searching);
     void rebuildFieldChoices();
     void beginReleaseDetailFetch(int index);
     void applyReleaseDetailFields(int index, int fetchId, const QVariantMap &fields);
+    void abortNetwork();
+    void startGet(const QUrl &url, const QList<QPair<QByteArray, QByteArray>> &headers,
+                  PendingKind kind);
+    void onReplyFinished();
+    void finishSearchIfReady();
     static QVariantMap normalizeCandidateFields(const QVariantMap &fields);
 
     ConfigService *m_config = nullptr;
     DiscogsService *m_discogs = nullptr;
+    QNetworkAccessManager *m_network = nullptr;
+    QNetworkReply *m_reply = nullptr;
     bool m_searching = false;
     QString m_status;
     QVariantList m_candidates;
@@ -61,4 +73,12 @@ private:
     QVariantMap m_currentFields;
     QHash<QString, bool> m_fieldChecked;
     int m_detailFetchId = 0;
+    int m_searchId = 0;
+
+    PendingKind m_pendingKind = PendingKind::None;
+    QString m_searchArtist;
+    QString m_searchAlbum;
+    QVariantList m_searchAccum;
+    int m_searchesRemaining = 0;
+    int m_detailIndex = -1;
 };

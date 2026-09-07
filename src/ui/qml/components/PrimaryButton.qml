@@ -7,6 +7,9 @@ Button {
 
     Material.roundedScale: Material.SmallScale
 
+    Accessible.name: control.text
+    Accessible.role: Accessible.Button
+
     scale: control.pressed ? 0.98 : 1
     Behavior on scale { NumberAnimation { duration: 80 } }
 

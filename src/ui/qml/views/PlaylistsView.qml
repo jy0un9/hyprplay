@@ -13,15 +13,24 @@ Pane {
     }
 
     function playSelected() {
-        if (App.playlistTracks.count > 0)
-            App.playPlaylistTrackIndex(0)
-        else
+        if (App.playlistFocusColumn === "tracks" && App.playlistTracks.count > 0) {
+            const index = App.selectedPlaylistTrackIndex >= 0
+                          ? App.selectedPlaylistTrackIndex : 0
+            App.playPlaylistTrackIndex(index)
+            return
+        }
+        if (App.playlists.selectedPlaylist.length > 0)
             App.playPlaylist()
     }
 
-    function removeCurrentPlaylistTrack() {
-        if (trackList.currentIndex >= 0 && trackList.count > 0)
-            App.removePlaylistTrack(trackList.currentIndex)
+    function handleDelete() {
+        if (App.playlistFocusColumn === "playlists") {
+            if (App.playlists.selectedPlaylist.length > 0)
+                deleteDialog.open()
+            return
+        }
+        if (App.selectedPlaylistTrackIndex >= 0 && App.playlistTracks.count > 0)
+            App.removePlaylistTrack(App.selectedPlaylistTrackIndex)
     }
 
     function focusNewPlaylistField() {
@@ -33,11 +42,33 @@ Pane {
         App.config.setLayoutPlaylistsListWidth(Math.round(playlistListPane.width))
     }
 
+    function ensurePlaylistSelectionVisible() {
+        const names = App.playlists.playlistNames
+        const idx = names.indexOf(App.playlists.selectedPlaylist)
+        if (idx >= 0)
+            playlistList.positionViewAtIndex(idx, ListView.Contain)
+    }
+
+    function ensureTrackSelectionVisible() {
+        if (App.selectedPlaylistTrackIndex >= 0 && App.selectedPlaylistTrackIndex < trackList.count)
+            trackList.positionViewAtIndex(App.selectedPlaylistTrackIndex, ListView.Contain)
+    }
+
     Component.onCompleted: Qt.callLater(applyLayout)
 
     background: Rectangle { color: Theme.background }
 
     property string selectedPlaylist: App.playlists.selectedPlaylist
+
+    Connections {
+        target: App
+        function onPlaylistFocusChanged() {
+            if (App.playlistFocusColumn === "playlists")
+                ensurePlaylistSelectionVisible()
+            else
+                ensureTrackSelectionVisible()
+        }
+    }
 
     SplitView {
         id: playlistSplit
@@ -128,13 +159,23 @@ Pane {
                     clip: true
                     model: App.playlistItems
                     visible: count > 0
+                    currentIndex: {
+                        const names = App.playlists.playlistNames
+                        return names.indexOf(App.playlists.selectedPlaylist)
+                    }
 
                     delegate: AppListDelegate {
                         id: playlistDelegate
                         width: playlistList.width
                         text: model.name
+                        accessibleName: model.name + ", " + model.trackCount + " tracks"
                         highlighted: playlistsView.selectedPlaylist === model.name
-                        onClicked: App.selectPlaylist(model.name)
+                        accented: App.playlistFocusColumn === "playlists"
+                                  && playlistsView.selectedPlaylist === model.name
+                        onClicked: {
+                            App.setPlaylistFocusColumn("playlists")
+                            App.selectPlaylist(model.name)
+                        }
 
                         contentItem: RowLayout {
                             spacing: Theme.spaceSm
@@ -238,20 +279,79 @@ Pane {
                     clip: true
                     model: App.playlistTracks
                     visible: playlistsView.selectedPlaylist.length > 0
+                    currentIndex: App.selectedPlaylistTrackIndex
+                    property int draggingIndex: -1
+                    property int dropIndex: -1
+
+                    function indexAtContentY(contentY) {
+                        const x = Math.min(48, width * 0.5)
+                        let idx = indexAt(x, contentY)
+                        if (idx < 0 && count > 0) {
+                            if (contentY <= 0)
+                                idx = 0
+                            else
+                                idx = count - 1
+                        }
+                        return idx
+                    }
+
+                    onCurrentIndexChanged: {
+                        if (draggingIndex >= 0)
+                            return
+                        if (App.selectedPlaylistTrackIndex >= 0)
+                            positionViewAtIndex(App.selectedPlaylistTrackIndex, ListView.Contain)
+                    }
 
                     delegate: ItemDelegate {
                         id: playlistTrackDelegate
                         width: trackList.width
                         enabled: model.resolved !== false
+                        highlighted: index === App.selectedPlaylistTrackIndex
+                        Accessible.name: (model.resolved === false ? "Missing track: " : "")
+                                         + model.title
+                        Accessible.role: Accessible.ListItem
+                        Accessible.checkable: true
+                        Accessible.checked: highlighted
+                        opacity: trackList.draggingIndex === index ? 0.55 : 1
 
                         background: Rectangle {
                             radius: 0
-                            color: playlistTrackDelegate.hovered
-                                   ? Theme.rgba(Theme.selection, 0.85)
-                                   : "transparent"
+                            color: {
+                                if (playlistTrackDelegate.highlighted)
+                                    return Theme.rgba(Theme.accent, 0.22)
+                                if (playlistTrackDelegate.hovered && trackList.draggingIndex < 0)
+                                    return Theme.rgba(Theme.selection, 0.85)
+                                return "transparent"
+                            }
 
                             Behavior on color {
                                 ColorAnimation { duration: 120 }
+                            }
+
+                            Rectangle {
+                                width: 3
+                                height: parent.height - 8
+                                anchors.left: parent.left
+                                anchors.leftMargin: 2
+                                anchors.verticalCenter: parent.verticalCenter
+                                radius: 0
+                                color: Theme.accent
+                                opacity: App.playlistFocusColumn === "tracks"
+                                         && playlistTrackDelegate.highlighted ? 1 : 0
+
+                                Behavior on opacity {
+                                    NumberAnimation { duration: 120 }
+                                }
+                            }
+
+                            Rectangle {
+                                anchors.top: parent.top
+                                width: parent.width
+                                height: 2
+                                color: Theme.accent
+                                visible: trackList.dropIndex === index
+                                         && trackList.draggingIndex >= 0
+                                         && trackList.draggingIndex !== index
                             }
                         }
 
@@ -274,11 +374,14 @@ Pane {
 
                                 Label {
                                     anchors.fill: parent
-                                    text: index + 1
-                                    opacity: App.playback.currentPath === model.path ? 1 : 0.55
+                                    text: trackList.draggingIndex === index ? "⋮⋮" : (index + 1)
+                                    opacity: App.playback.currentPath === model.path
+                                             || playlistTrackDelegate.highlighted ? 1 : 0.55
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     color: Theme.foreground
+                                    font.pixelSize: trackList.draggingIndex === index
+                                                    ? Theme.fontCaption : Theme.fontBody
                                 }
                             }
                             Label {
@@ -287,7 +390,8 @@ Pane {
                                 elide: Text.ElideRight
                                 color: App.playback.currentPath === model.path
                                        ? Theme.accent : Theme.foreground
-                                opacity: model.resolved === false ? 0.45 : 1
+                                opacity: model.resolved === false ? 0.45
+                                         : (playlistTrackDelegate.highlighted ? 1 : 0.92)
                             }
                             Label {
                                 text: model.resolved === false ? "" : formatDuration(model.durationMs)
@@ -296,16 +400,72 @@ Pane {
                             }
                         }
 
+                        // Overlay on the Control itself — contentItem MouseAreas do not receive
+                        // presses because ItemDelegate owns the pointer handling.
+                        MouseArea {
+                            id: dragHandle
+                            z: 20
+                            width: 40
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            cursorShape: Qt.SizeVerCursor
+                            preventStealing: true
+                            hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton
+                            ToolTip.visible: App.config.tooltipsEnabled && containsMouse
+                                             && trackList.draggingIndex < 0
+                            ToolTip.text: "Drag to reorder"
+                            onPressed: function(mouse) {
+                                mouse.accepted = true
+                                App.setPlaylistFocusColumn("tracks")
+                                trackList.draggingIndex = index
+                                trackList.dropIndex = index
+                            }
+                            onPositionChanged: function(mouse) {
+                                if (trackList.draggingIndex < 0 || !pressed)
+                                    return
+                                const p = mapToItem(trackList.contentItem, mouse.x, mouse.y)
+                                const idx = trackList.indexAtContentY(p.y)
+                                if (idx >= 0)
+                                    trackList.dropIndex = idx
+                            }
+                            onReleased: function(mouse) {
+                                mouse.accepted = true
+                                const from = trackList.draggingIndex
+                                let to = trackList.dropIndex
+                                if (from >= 0) {
+                                    const p = mapToItem(trackList.contentItem, mouse.x, mouse.y)
+                                    const idx = trackList.indexAtContentY(p.y)
+                                    if (idx >= 0)
+                                        to = idx
+                                }
+                                trackList.draggingIndex = -1
+                                trackList.dropIndex = -1
+                                if (from >= 0 && to >= 0 && from !== to)
+                                    App.movePlaylistTrack(from, to)
+                                else if (from >= 0)
+                                    App.setSelectedPlaylistTrackIndex(from)
+                            }
+                            onCanceled: {
+                                trackList.draggingIndex = -1
+                                trackList.dropIndex = -1
+                            }
+                        }
+
                         Button {
                             anchors.right: parent.right
                             anchors.rightMargin: Theme.spaceSm
                             anchors.verticalCenter: parent.verticalCenter
+                            z: 21
                             width: 28
                             height: 28
                             text: "×"
                             flat: true
-                            opacity: playlistTrackDelegate.hovered ? 1 : 0
-                            enabled: playlistTrackDelegate.hovered
+                            Accessible.name: "Remove from playlist"
+                            Accessible.role: Accessible.Button
+                            opacity: playlistTrackDelegate.hovered && trackList.draggingIndex < 0 ? 1 : 0
+                            enabled: playlistTrackDelegate.hovered && trackList.draggingIndex < 0
                             ToolTip.visible: App.config.tooltipsEnabled && hovered && enabled
                             ToolTip.text: "Remove from playlist"
                             onClicked: App.removePlaylistTrack(index)
@@ -315,7 +475,11 @@ Pane {
                             }
                         }
 
-                        onClicked: App.playPlaylistTrackIndex(index)
+                        onClicked: {
+                            if (trackList.draggingIndex >= 0)
+                                return
+                            App.playPlaylistTrackIndex(index)
+                        }
                     }
                 }
 
@@ -333,7 +497,7 @@ Pane {
                     Layout.fillHeight: true
                     iconName: "audio-x-generic-symbolic"
                     title: "This playlist is empty"
-                    subtitle: "Add tracks from the library."
+                    subtitle: "In Browse: right-click tracks/albums, or Ctrl/Shift-select tracks → Add to playlist. Drag the track number to reorder."
                     visible: playlistsView.selectedPlaylist.length > 0 && trackList.count === 0
                 }
             }

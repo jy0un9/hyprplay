@@ -14,6 +14,8 @@ class ImportService : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(int progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QVariantList albums READ albums NOTIFY albumsChanged)
+    Q_PROPERTY(int selectedCount READ selectedCount NOTIFY albumsChanged)
+    Q_PROPERTY(QString destinationRoot READ destinationRoot NOTIFY albumsChanged)
 
 public:
     explicit ImportService(ConfigService *config, LibraryService *library, TagService *tags,
@@ -23,8 +25,12 @@ public:
     QString status() const { return m_status; }
     int progress() const { return m_progress; }
     QVariantList albums() const { return m_albums; }
+    int selectedCount() const;
+    QString destinationRoot() const;
 
     Q_INVOKABLE void scanInbox();
+    Q_INVOKABLE void setAlbumSelected(int index, bool selected);
+    Q_INVOKABLE void setAllAlbumsSelected(bool selected);
     Q_INVOKABLE void startImport(bool runBeets = true);
     Q_INVOKABLE void cancelImport();
 
@@ -39,6 +45,7 @@ private:
     void setImporting(bool importing);
     void setStatus(const QString &status);
     void setProgress(int progress);
+    QString musicLibraryRoot() const;
 
     ConfigService *m_config = nullptr;
     LibraryService *m_library = nullptr;

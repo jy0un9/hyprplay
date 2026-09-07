@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
+#include <QVector>
 
 #include <mpv/client.h>
 
@@ -92,6 +93,8 @@ private:
     void syncFromMpv();
     void loadCurrentQueueTrack();
     void refreshAudioBackend();
+    void rebuildShuffleBag(int preferFirstIndex);
+    bool hasNextInQueue() const;
 
     static void mpvWakeup(void *ctx);
 
@@ -112,6 +115,8 @@ private:
 
     QVariantList m_queue;
     int m_queueIndex = -1;
+    QVector<int> m_shuffleBag;
+    int m_shufflePos = -1;
     RepeatMode m_repeatMode = RepeatMode::Off;
     bool m_shuffle = false;
     bool m_trackEndedPending = false;

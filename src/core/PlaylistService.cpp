@@ -2,84 +2,17 @@
 
 #include "ConfigService.h"
 #include "LibraryService.h"
+#include "PlaylistM3u.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
+#include <QVector>
 
 namespace {
 
-struct ParsedEntry {
-    QString sourcePath;
-    QString display;
-    int durationSecs = -1;
-};
-
-QString unescapeExtInfDisplay(const QString &display) {
-    return display.trimmed();
-}
-
-QString fallbackDisplayForPath(const QString &path) {
-    return QFileInfo(path).completeBaseName();
-}
-
-ParsedEntry parseExtInfLine(const QString &raw) {
-    ParsedEntry entry;
-    const int comma = raw.indexOf(QLatin1Char(','));
-    const QString durationPart = comma >= 0 ? raw.left(comma).trimmed() : raw.trimmed();
-    entry.display =
-        comma >= 0 ? unescapeExtInfDisplay(raw.mid(comma + 1)) : QString();
-    bool ok = false;
-    const int duration = durationPart.toInt(&ok);
-    if (ok && duration >= 0) {
-        entry.durationSecs = duration;
-    }
-    return entry;
-}
-
-QVector<ParsedEntry> parseM3u8(const QString &content) {
-    QVector<ParsedEntry> entries;
-    ParsedEntry pending;
-    bool hasPending = false;
-
-    const QStringList lines = content.split(QLatin1Char('\n'));
-    for (QString rawLine : lines) {
-        rawLine = rawLine.trimmed();
-        if (rawLine.startsWith(QChar(0xFEFF))) {
-            rawLine = rawLine.mid(1);
-        }
-        if (rawLine.isEmpty()) {
-            continue;
-        }
-
-        if (rawLine.startsWith(QStringLiteral("#EXTINF:"), Qt::CaseInsensitive)) {
-            pending = parseExtInfLine(rawLine.mid(8));
-            hasPending = true;
-            continue;
-        }
-
-        if (rawLine.startsWith(QLatin1Char('#'))) {
-            continue;
-        }
-
-        ParsedEntry entry;
-        entry.sourcePath = rawLine;
-        if (hasPending) {
-            entry.display = pending.display;
-            entry.durationSecs = pending.durationSecs;
-            hasPending = false;
-        }
-        if (entry.display.isEmpty()) {
-            entry.display = fallbackDisplayForPath(entry.sourcePath);
-        }
-        entries.append(entry);
-    }
-
-    return entries;
-}
-
-QVariantMap unresolvedEntry(const ParsedEntry &parsed) {
+QVariantMap unresolvedEntry(const M3uEntry &parsed) {
     QVariantMap row;
     row.insert(QStringLiteral("path"), QString());
     row.insert(QStringLiteral("title"), parsed.display);
@@ -169,8 +102,8 @@ PlaylistService::LoadedPlaylist PlaylistService::loadPlaylistFile(const QString 
         return playlist;
     }
 
-    const QVector<ParsedEntry> parsed = parseM3u8(QString::fromUtf8(file.readAll()));
-    for (const ParsedEntry &entry : parsed) {
+    const QVector<M3uEntry> parsed = parseM3u8(QString::fromUtf8(file.readAll()));
+    for (const M3uEntry &entry : parsed) {
         QVariantMap track =
             m_library->resolvePlaylistEntry(entry.sourcePath, entry.display);
         if (track.isEmpty()) {
@@ -255,27 +188,25 @@ bool PlaylistService::savePlaylist(const LoadedPlaylist &playlist) const {
         }
     }
 
-    QTextStream out(&file);
-    out << "#EXTM3U\n";
+    QVector<M3uEntry> entries;
     for (const QVariant &item : playlist.entries) {
         const QVariantMap track = item.toMap();
-        const QString display =
+        M3uEntry entry;
+        entry.display =
             track.value(QStringLiteral("artist")).toString().isEmpty()
                 ? track.value(QStringLiteral("title")).toString()
                 : track.value(QStringLiteral("artist")).toString() + QStringLiteral(" - ")
                       + track.value(QStringLiteral("title")).toString();
-        const int durationSecs = qMax(0, track.value(QStringLiteral("durationMs")).toInt() / 1000);
-        out << "#EXTINF:" << durationSecs << ',' << display << "\n";
-
-        QString pathLine = track.value(QStringLiteral("sourcePath")).toString();
-        if (pathLine.isEmpty()) {
-            pathLine =
+        entry.durationSecs = qMax(0, track.value(QStringLiteral("durationMs")).toInt() / 1000);
+        entry.sourcePath = track.value(QStringLiteral("sourcePath")).toString();
+        if (entry.sourcePath.isEmpty()) {
+            entry.sourcePath =
                 relativeTrackPath(track.value(QStringLiteral("path")).toString(), roots);
         }
-        pathLine.replace(QLatin1Char('\\'), QLatin1Char('/'));
-        out << pathLine << "\n";
+        entries.append(entry);
     }
 
+    file.write(serializeM3u8(entries).toUtf8());
     return true;
 }
 
@@ -399,14 +330,51 @@ bool PlaylistService::removeTrackFromPlaylist(const QString &playlistName, int i
     return true;
 }
 
-bool PlaylistService::addTrackToPlaylist(const QString &playlistName, const QVariantMap &track) {
-    if (playlistName.isEmpty() || track.value(QStringLiteral("path")).toString().isEmpty()) {
+bool PlaylistService::moveTrackInPlaylist(const QString &playlistName, int fromIndex, int toIndex) {
+    if (playlistName.isEmpty()) {
         return false;
     }
 
     LoadedPlaylist playlist = playlistByName(playlistName);
     if (playlist.filePath.isEmpty() || !QFile::exists(playlist.filePath)) {
         return false;
+    }
+    if (fromIndex < 0 || fromIndex >= playlist.entries.size()) {
+        return false;
+    }
+    const int boundedTo = qBound(0, toIndex, playlist.entries.size() - 1);
+    if (fromIndex == boundedTo) {
+        return true;
+    }
+
+    const QVariant item = playlist.entries.takeAt(fromIndex);
+    playlist.entries.insert(boundedTo, item);
+
+    if (!savePlaylist(playlist)) {
+        setStatus(QStringLiteral("Failed to reorder playlist"));
+        return false;
+    }
+
+    if (m_selectedPlaylist == playlistName) {
+        m_selectedTracksDirty = true;
+        emit playlistTracksChanged();
+    }
+    setStatus(QStringLiteral("Reordered \"%1\"").arg(playlistName));
+    return true;
+}
+
+bool PlaylistService::addTrackToPlaylist(const QString &playlistName, const QVariantMap &track) {
+    return addTracksToPlaylist(playlistName, QVariantList{track}) > 0;
+}
+
+int PlaylistService::addTracksToPlaylist(const QString &playlistName, const QVariantList &tracks) {
+    if (playlistName.isEmpty() || tracks.isEmpty()) {
+        return 0;
+    }
+
+    LoadedPlaylist playlist = playlistByName(playlistName);
+    if (playlist.filePath.isEmpty() || !QFile::exists(playlist.filePath)) {
+        return 0;
     }
 
     QStringList roots;
@@ -416,15 +384,27 @@ bool PlaylistService::addTrackToPlaylist(const QString &playlistName, const QVar
         }
     }
 
-    QVariantMap entry = track;
-    entry.insert(QStringLiteral("resolved"), true);
-    entry.insert(QStringLiteral("sourcePath"),
-                 relativeTrackPath(track.value(QStringLiteral("path")).toString(), roots));
-    playlist.entries << entry;
+    int added = 0;
+    for (const QVariant &item : tracks) {
+        const QVariantMap track = item.toMap();
+        const QString path = track.value(QStringLiteral("path")).toString();
+        if (path.isEmpty()) {
+            continue;
+        }
+        QVariantMap entry = track;
+        entry.insert(QStringLiteral("resolved"), true);
+        entry.insert(QStringLiteral("sourcePath"), relativeTrackPath(path, roots));
+        playlist.entries << entry;
+        ++added;
+    }
+
+    if (added == 0) {
+        return 0;
+    }
 
     if (!savePlaylist(playlist)) {
         setStatus(QStringLiteral("Failed to update playlist"));
-        return false;
+        return 0;
     }
 
     m_trackCounts.insert(playlistName, playlist.entries.size());
@@ -433,6 +413,7 @@ bool PlaylistService::addTrackToPlaylist(const QString &playlistName, const QVar
         emit playlistTracksChanged();
     }
     emit playlistsChanged();
-    setStatus(QStringLiteral("Added track to \"%1\"").arg(playlistName));
-    return true;
+    setStatus(added == 1 ? QStringLiteral("Added track to \"%1\"").arg(playlistName)
+                         : QStringLiteral("Added %1 tracks to \"%2\"").arg(added).arg(playlistName));
+    return added;
 }

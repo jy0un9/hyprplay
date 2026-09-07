@@ -190,6 +190,8 @@ Pane {
                 value: playback.volume
                 enabled: !playback.muted && !playback.dacPassthrough
                 opacity: playback.dacPassthrough ? 0.4 : 1
+                Accessible.name: "Volume"
+                Accessible.role: Accessible.Slider
                 ToolTip.visible: App.config.tooltipsEnabled && hovered && playback.dacPassthrough
                 ToolTip.text: "Locked at 100% in DAC passthrough — use the DAC knob"
                 onMoved: playback.setVolume(value)

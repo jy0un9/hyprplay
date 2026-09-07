@@ -4,4 +4,9 @@ qrc_*.cpp
 .qmake.stash
 Makefile
 qt-music-bin
+qt-music-tests
 moc_predefs.h
+*.moc
+target_wrapper.sh
+events.log
+.commandcode/

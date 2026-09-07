@@ -3,6 +3,9 @@
 #include <QObject>
 #include <QSqlDatabase>
 #include <QStringList>
+#include <QTimer>
+
+class QFileSystemWatcher;
 
 struct TrackInfo {
     qint64 id = 0;
@@ -19,6 +22,7 @@ class LibraryService : public QObject {
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
     Q_PROPERTY(int trackCount READ trackCount NOTIFY libraryChanged)
     Q_PROPERTY(QString scanStatus READ scanStatus NOTIFY scanStatusChanged)
+    Q_PROPERTY(bool watchEnabled READ watchEnabled NOTIFY watchEnabledChanged)
 
 public:
     explicit LibraryService(QObject *parent = nullptr);
@@ -27,8 +31,10 @@ public:
     bool scanning() const { return m_scanning; }
     int trackCount() const { return m_trackCount; }
     QString scanStatus() const { return m_scanStatus; }
+    bool watchEnabled() const { return m_watchEnabled; }
 
     void setScanOnLaunch(bool enabled) { m_scanOnLaunch = enabled; }
+    void setWatchEnabled(bool enabled);
 
     Q_INVOKABLE void ensureLibrary(const QStringList &roots);
     Q_INVOKABLE void rescan(const QStringList &roots);
@@ -51,6 +57,7 @@ signals:
     void scanStatusChanged();
     void libraryChanged();
     void scanFinished(bool success);
+    void watchEnabledChanged();
 
 private:
     bool openDatabase();
@@ -60,12 +67,21 @@ private:
     void saveStoredRoots(const QStringList &roots, QSqlDatabase &db);
     void scanRoots(const QStringList &roots, bool fullRebuild, QSqlDatabase &db);
     static bool ingestFile(QSqlDatabase &db, const QString &path);
+    static bool fileNeedsIngest(QSqlDatabase &db, const QString &path);
     void refreshTrackCount();
+    void startScan(const QStringList &roots, bool fullRebuild);
+    void scheduleWatchRescan();
+    void refreshWatchPaths();
+    void clearWatchPaths();
 
     QSqlDatabase m_db;
     QStringList m_libraryRoots;
     bool m_scanning = false;
     bool m_scanOnLaunch = true;
+    bool m_watchEnabled = true;
+    bool m_watchRescanPending = false;
     int m_trackCount = 0;
     QString m_scanStatus;
+    QFileSystemWatcher *m_watcher = nullptr;
+    QTimer m_watchDebounce;
 };

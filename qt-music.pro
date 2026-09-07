@@ -24,6 +24,10 @@ SOURCES += \
     src/core/MetadataSearchService.cpp \
     src/core/OmarchyThemeService.cpp \
     src/core/ThemeIconProvider.cpp \
+    src/core/SecretsStore.cpp \
+    src/core/LrcParser.cpp \
+    src/core/PlaylistM3u.cpp \
+    src/core/LyricsParsers.cpp \
     src/core/FuzzyMatch.cpp \
     src/models/PlaylistListModel.cpp \
     src/models/ArtistModel.cpp \
@@ -46,6 +50,10 @@ HEADERS += \
     src/core/MetadataSearchService.h \
     src/core/OmarchyThemeService.h \
     src/core/ThemeIconProvider.h \
+    src/core/SecretsStore.h \
+    src/core/LrcParser.h \
+    src/core/PlaylistM3u.h \
+    src/core/LyricsParsers.h \
     src/core/FuzzyMatch.h \
     src/models/PlaylistListModel.h \
     src/models/ArtistModel.h \
@@ -58,9 +66,14 @@ INCLUDEPATH += src /usr/include /usr/include/taglib
 
 LIBS += -lmpv -ltag -lz
 
+unix {
+    CONFIG += link_pkgconfig
+    PKGCONFIG += libsecret-1
+}
+
 QML_IMPORT_PATH = src/ui/qml
 
-isEmpty(PREFIX): PREFIX = $$(HOME)/.local
+isEmpty(PREFIX): PREFIX = /usr/local
 
 unix {
     QMAKE_MKDIR = mkdir -p

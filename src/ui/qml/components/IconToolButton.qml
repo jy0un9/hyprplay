@@ -8,6 +8,10 @@ ToolButton {
     property int iconSize: 20
     property real iconOpacity: 1
     property color iconColor: Theme.foreground
+    property string accessibleLabel: control.text.length > 0 ? control.text : control.iconName
+
+    Accessible.name: accessibleLabel
+    Accessible.role: Accessible.Button
 
     display: AbstractButton.IconOnly
     contentItem: Image {

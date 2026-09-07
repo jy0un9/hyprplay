@@ -12,6 +12,9 @@ ColumnLayout {
     property bool loading: false
     signal actionClicked()
 
+    Accessible.name: root.loading ? "Loading" : (root.title + (root.subtitle.length > 0 ? (". " + root.subtitle) : ""))
+    Accessible.role: Accessible.StaticText
+
     spacing: Theme.spaceMd
 
     AppIcon {

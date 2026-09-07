@@ -177,6 +177,19 @@ Pane {
                         checked: App.config.scanOnLaunch
                         onToggled: settingsView.dirty = settingsView.isDirty()
                     }
+                    CheckBox {
+                        id: libraryWatchField
+                        text: "Watch library for changes"
+                        checked: App.config.libraryWatchEnabled
+                        onToggled: settingsView.dirty = settingsView.isDirty()
+                    }
+                    Label {
+                        text: "When enabled, new or removed tracks under your library paths are picked up automatically."
+                        color: Theme.muted
+                        font.pixelSize: Theme.fontCaption
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
                 }
             }
 
@@ -299,6 +312,13 @@ Pane {
                         text: "Use a personal token to fetch album notes and artwork."
                         color: Theme.muted
                         font.pixelSize: Theme.fontSmall
+                        Layout.fillWidth: true
+                    }
+                    Label {
+                        text: App.config.secretsStorageDescription()
+                        color: Theme.muted
+                        font.pixelSize: Theme.fontCaption
+                        wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
                     TextField {
@@ -449,6 +469,7 @@ Pane {
                                          fontField.text.trim(),
                                          fontSizeField.value,
                                          scanOnLaunchField.checked,
+                                         libraryWatchField.checked,
                                          wasdField.checked,
                                          tooltipsField.checked,
                                          neteaseField.checked,
@@ -476,6 +497,7 @@ Pane {
         if (!libraryPathsField || !inboxField || !lyricsDirField
             || !beetsBinaryField || !beetsNomoveField || !fontField
             || !fontSizeField || !discogsTokenField || !scanOnLaunchField
+            || !libraryWatchField
             || !wasdField || !tooltipsField || !neteaseField || !plainField)
             return settingsView.dirty
         return libraryPathsField.text.trim() !== App.config.libraryPaths.join(", ")
@@ -486,6 +508,7 @@ Pane {
             || fontField.text.trim() !== App.config.uiFontFamily
             || fontSizeField.value !== App.config.uiFontSize
             || scanOnLaunchField.checked !== App.config.scanOnLaunch
+            || libraryWatchField.checked !== App.config.libraryWatchEnabled
             || wasdField.checked !== App.config.wasdNavigation
             || tooltipsField.checked !== App.config.tooltipsEnabled
             || neteaseField.checked !== App.config.lyricsNeteaseEnabled

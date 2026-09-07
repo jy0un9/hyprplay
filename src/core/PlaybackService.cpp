@@ -3,9 +3,12 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QRandomGenerator>
+#include <QVector>
 
+#include <algorithm>
 #include <clocale>
 #include <cmath>
+#include <numeric>
 
 namespace {
 
@@ -251,7 +254,7 @@ void PlaybackService::pollMpv() {
         if (m_repeatMode == RepeatMode::Track) {
             seek(0);
             play();
-        } else if (m_queueIndex + 1 < m_queue.size() || m_repeatMode == RepeatMode::Queue) {
+        } else if (hasNextInQueue()) {
             next();
         } else {
             m_playing = false;
@@ -263,6 +266,8 @@ void PlaybackService::pollMpv() {
 void PlaybackService::playPath(const QString &path, const QString &title, const QString &artist,
                                const QString &album) {
     m_queue.clear();
+    m_shuffleBag.clear();
+    m_shufflePos = -1;
     m_queueIndex = 0;
 
     QVariantMap track;
@@ -281,7 +286,44 @@ void PlaybackService::playTracks(const QVariantList &tracks, int startIndex) {
     }
     m_queue = tracks;
     m_queueIndex = qBound(0, startIndex, tracks.size() - 1);
+    if (m_shuffle && m_queue.size() > 1) {
+        rebuildShuffleBag(m_queueIndex);
+        m_queueIndex = m_shuffleBag.at(m_shufflePos);
+    } else {
+        m_shuffleBag.clear();
+        m_shufflePos = -1;
+    }
     loadCurrentQueueTrack();
+}
+
+void PlaybackService::rebuildShuffleBag(int preferFirstIndex) {
+    const int n = m_queue.size();
+    m_shuffleBag.resize(n);
+    std::iota(m_shuffleBag.begin(), m_shuffleBag.end(), 0);
+    for (int i = n - 1; i > 0; --i) {
+        const int j = QRandomGenerator::global()->bounded(i + 1);
+        std::swap(m_shuffleBag[i], m_shuffleBag[j]);
+    }
+    if (preferFirstIndex >= 0 && preferFirstIndex < n) {
+        const int at = m_shuffleBag.indexOf(preferFirstIndex);
+        if (at > 0) {
+            std::swap(m_shuffleBag[0], m_shuffleBag[at]);
+        }
+    }
+    m_shufflePos = n > 0 ? 0 : -1;
+}
+
+bool PlaybackService::hasNextInQueue() const {
+    if (m_queue.isEmpty()) {
+        return false;
+    }
+    if (m_repeatMode == RepeatMode::Queue) {
+        return true;
+    }
+    if (m_shuffle && m_shuffleBag.size() > 1) {
+        return m_shufflePos + 1 < m_shuffleBag.size();
+    }
+    return m_queueIndex + 1 < m_queue.size();
 }
 
 void PlaybackService::loadCurrentQueueTrack() {
@@ -376,13 +418,25 @@ void PlaybackService::next() {
         return;
     }
 
-    if (m_shuffle && m_queue.size() > 1) {
-        int nextIdx = m_queueIndex;
-        while (nextIdx == m_queueIndex) {
-            nextIdx = QRandomGenerator::global()->bounded(m_queue.size());
+    if (m_shuffle && m_shuffleBag.size() > 1) {
+        if (m_shufflePos + 1 < m_shuffleBag.size()) {
+            ++m_shufflePos;
+        } else if (m_repeatMode == RepeatMode::Queue) {
+            const int justPlayed = m_queueIndex;
+            rebuildShuffleBag(-1);
+            if (m_shuffleBag.size() > 1 && m_shuffleBag.first() == justPlayed) {
+                const int swapWith = 1 + QRandomGenerator::global()->bounded(m_shuffleBag.size() - 1);
+                std::swap(m_shuffleBag[0], m_shuffleBag[swapWith]);
+            }
+        } else {
+            return;
         }
-        m_queueIndex = nextIdx;
-    } else if (m_queueIndex + 1 < m_queue.size()) {
+        m_queueIndex = m_shuffleBag.at(m_shufflePos);
+        loadCurrentQueueTrack();
+        return;
+    }
+
+    if (m_queueIndex + 1 < m_queue.size()) {
         ++m_queueIndex;
     } else if (m_repeatMode == RepeatMode::Queue) {
         m_queueIndex = 0;
@@ -400,6 +454,20 @@ void PlaybackService::previous() {
         seek(0);
         return;
     }
+
+    if (m_shuffle && m_shuffleBag.size() > 1) {
+        if (m_shufflePos > 0) {
+            --m_shufflePos;
+            m_queueIndex = m_shuffleBag.at(m_shufflePos);
+            loadCurrentQueueTrack();
+        } else if (m_repeatMode == RepeatMode::Queue) {
+            m_shufflePos = m_shuffleBag.size() - 1;
+            m_queueIndex = m_shuffleBag.at(m_shufflePos);
+            loadCurrentQueueTrack();
+        }
+        return;
+    }
+
     if (m_queueIndex > 0) {
         --m_queueIndex;
         loadCurrentQueueTrack();
@@ -468,7 +536,17 @@ void PlaybackService::setRepeatMode(int mode) {
 }
 
 void PlaybackService::setShuffle(bool enabled) {
+    if (m_shuffle == enabled) {
+        return;
+    }
     m_shuffle = enabled;
+    if (m_shuffle && m_queue.size() > 1 && m_queueIndex >= 0) {
+        rebuildShuffleBag(m_queueIndex);
+        m_queueIndex = m_shuffleBag.at(m_shufflePos);
+    } else {
+        m_shuffleBag.clear();
+        m_shufflePos = -1;
+    }
     emit shuffleChanged();
 }
 

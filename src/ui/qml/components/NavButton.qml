@@ -7,6 +7,11 @@ AbstractButton {
     property string iconText: ""
     property bool navHighlighted: false
 
+    Accessible.name: control.text
+    Accessible.role: Accessible.PageTab
+    Accessible.checkable: true
+    Accessible.checked: control.navHighlighted
+
     contentItem: Row {
         spacing: 10
         leftPadding: 10

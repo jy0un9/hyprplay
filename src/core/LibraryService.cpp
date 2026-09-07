@@ -1,22 +1,26 @@
 #include "LibraryService.h"
 
-#include <QDir>
 #include <QDateTime>
+#include <QDir>
 #include <QDirIterator>
-#include <QFileInfo>
 #include <QFile>
+#include <QFileInfo>
+#include <QFileSystemWatcher>
+#include <QSet>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
-#include <QThreadPool>
+#include <QThread>
 #include <QVariantMap>
 #include <QtConcurrent>
-#include <QThread>
 
 #include <taglib/fileref.h>
 #include <taglib/tag.h>
 
 namespace {
+
+constexpr int kWatchDebounceMs = 1500;
+constexpr int kMaxWatchedDirs = 8000;
 
 QString cacheDbPath() {
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -27,6 +31,15 @@ QString cacheDbPath() {
 bool isAudioFile(const QString &path) {
     const QString lower = path.toLower();
     return lower.endsWith(QLatin1String(".flac")) || lower.endsWith(QLatin1String(".opus"));
+}
+
+bool pathUnderRoots(const QString &path, const QStringList &roots) {
+    for (const QString &root : roots) {
+        if (path == root || path.startsWith(root + QLatin1Char('/'))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 TrackInfo readTags(const QString &path) {
@@ -64,9 +77,24 @@ TrackInfo readTags(const QString &path) {
 LibraryService::LibraryService(QObject *parent) : QObject(parent) {
     openDatabase();
     refreshTrackCount();
+
+    m_watchDebounce.setSingleShot(true);
+    m_watchDebounce.setInterval(kWatchDebounceMs);
+    connect(&m_watchDebounce, &QTimer::timeout, this, [this]() {
+        if (!m_watchEnabled || m_libraryRoots.isEmpty()) {
+            return;
+        }
+        if (m_scanning) {
+            m_watchRescanPending = true;
+            return;
+        }
+        startScan(m_libraryRoots, false);
+    });
 }
 
 LibraryService::~LibraryService() {
+    m_watchDebounce.stop();
+    clearWatchPaths();
     for (int i = 0; i < 600 && m_scanning; ++i) {
         QThread::msleep(50);
     }
@@ -164,6 +192,7 @@ void LibraryService::ensureLibrary(const QStringList &roots) {
     m_libraryRoots = normalized;
 
     if (normalized.isEmpty()) {
+        clearWatchPaths();
         m_scanStatus = QStringLiteral("No library paths configured");
         emit scanStatusChanged();
         return;
@@ -173,6 +202,7 @@ void LibraryService::ensureLibrary(const QStringList &roots) {
         m_scanStatus = QStringLiteral("Library loaded (%1 tracks)").arg(m_trackCount);
         emit scanStatusChanged();
         emit scanFinished(true);
+        refreshWatchPaths();
         return;
     }
 
@@ -180,10 +210,97 @@ void LibraryService::ensureLibrary(const QStringList &roots) {
         m_scanStatus = QStringLiteral("Library loaded (%1 tracks) — launch scan off").arg(m_trackCount);
         emit scanStatusChanged();
         emit scanFinished(true);
+        refreshWatchPaths();
         return;
     }
 
     rescan(roots);
+}
+
+void LibraryService::setWatchEnabled(bool enabled) {
+    if (m_watchEnabled == enabled) {
+        if (enabled) {
+            refreshWatchPaths();
+        }
+        return;
+    }
+    m_watchEnabled = enabled;
+    emit watchEnabledChanged();
+    if (!m_watchEnabled) {
+        m_watchDebounce.stop();
+        m_watchRescanPending = false;
+        clearWatchPaths();
+        return;
+    }
+    refreshWatchPaths();
+}
+
+void LibraryService::clearWatchPaths() {
+    if (!m_watcher) {
+        return;
+    }
+    const QStringList dirs = m_watcher->directories();
+    if (!dirs.isEmpty()) {
+        m_watcher->removePaths(dirs);
+    }
+    const QStringList files = m_watcher->files();
+    if (!files.isEmpty()) {
+        m_watcher->removePaths(files);
+    }
+}
+
+void LibraryService::refreshWatchPaths() {
+    if (!m_watchEnabled || m_libraryRoots.isEmpty()) {
+        clearWatchPaths();
+        return;
+    }
+
+    if (!m_watcher) {
+        m_watcher = new QFileSystemWatcher(this);
+        connect(m_watcher, &QFileSystemWatcher::directoryChanged, this,
+                [this](const QString &) { scheduleWatchRescan(); });
+        connect(m_watcher, &QFileSystemWatcher::fileChanged, this,
+                [this](const QString &) { scheduleWatchRescan(); });
+    }
+
+    clearWatchPaths();
+
+    QStringList dirs;
+    dirs.reserve(256);
+    for (const QString &root : m_libraryRoots) {
+        if (!QDir(root).exists()) {
+            continue;
+        }
+        dirs << root;
+        QDirIterator it(root, QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            dirs << it.next();
+            if (dirs.size() >= kMaxWatchedDirs) {
+                break;
+            }
+        }
+        if (dirs.size() >= kMaxWatchedDirs) {
+            qWarning("library watch: capped at %d directories", kMaxWatchedDirs);
+            break;
+        }
+    }
+
+    if (dirs.isEmpty()) {
+        return;
+    }
+
+    const QStringList failed = m_watcher->addPaths(dirs);
+    if (!failed.isEmpty()) {
+        qWarning("library watch: failed to watch %lld/%lld dirs (inotify limit?)",
+                 static_cast<long long>(failed.size()), static_cast<long long>(dirs.size()));
+    }
+}
+
+void LibraryService::scheduleWatchRescan() {
+    if (!m_watchEnabled) {
+        return;
+    }
+    m_watchDebounce.start();
 }
 
 void LibraryService::refreshTrackCount() {
@@ -195,20 +312,30 @@ void LibraryService::refreshTrackCount() {
 }
 
 void LibraryService::rescan(const QStringList &roots) {
+    startScan(normalizeRoots(roots), true);
+}
+
+void LibraryService::startScan(const QStringList &roots, bool fullRebuild) {
     if (m_scanning) {
+        if (!fullRebuild) {
+            m_watchRescanPending = true;
+        }
+        return;
+    }
+    if (roots.isEmpty()) {
         return;
     }
 
     m_scanning = true;
     emit scanningChanged();
-    m_scanStatus = QStringLiteral("Scanning library...");
+    m_scanStatus = fullRebuild ? QStringLiteral("Scanning library...")
+                               : QStringLiteral("Updating library…");
     emit scanStatusChanged();
 
-    const QStringList normalized = normalizeRoots(roots);
-    m_libraryRoots = normalized;
+    m_libraryRoots = roots;
     const QString dbPath = cacheDbPath();
 
-    (void)QtConcurrent::run([this, normalized, dbPath]() {
+    (void)QtConcurrent::run([this, roots, dbPath, fullRebuild]() {
         {
             QSqlDatabase db =
                 QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("qt_music_scan"));
@@ -230,20 +357,27 @@ void LibraryService::rescan(const QStringList &roots) {
                 pragma.exec(QStringLiteral("PRAGMA busy_timeout=5000"));
             }
 
-            scanRoots(normalized, true, db);
-            saveStoredRoots(normalized, db);
+            scanRoots(roots, fullRebuild, db);
+            saveStoredRoots(roots, db);
 
             db.close();
             QSqlDatabase::removeDatabase(QStringLiteral("qt_music_scan"));
         }
 
-        QMetaObject::invokeMethod(this, [this]() {
+        QMetaObject::invokeMethod(this, [this, fullRebuild]() {
             m_scanning = false;
             emit scanningChanged();
             refreshTrackCount();
-            m_scanStatus = QStringLiteral("Scan complete (%1 tracks)").arg(m_trackCount);
+            m_scanStatus = fullRebuild
+                               ? QStringLiteral("Scan complete (%1 tracks)").arg(m_trackCount)
+                               : QStringLiteral("Library updated (%1 tracks)").arg(m_trackCount);
             emit scanStatusChanged();
             emit scanFinished(true);
+            refreshWatchPaths();
+            if (m_watchRescanPending && m_watchEnabled) {
+                m_watchRescanPending = false;
+                scheduleWatchRescan();
+            }
         }, Qt::QueuedConnection);
     });
 }
@@ -254,7 +388,9 @@ void LibraryService::scanRoots(const QStringList &roots, bool fullRebuild, QSqlD
         deleteQ.exec(QStringLiteral("DELETE FROM tracks"));
     }
 
+    QSet<QString> seenPaths;
     int found = 0;
+    int updated = 0;
     for (const QString &root : roots) {
         QDirIterator it(root, QDir::Files, QDirIterator::Subdirectories);
         while (it.hasNext()) {
@@ -262,10 +398,17 @@ void LibraryService::scanRoots(const QStringList &roots, bool fullRebuild, QSqlD
             if (!isAudioFile(path)) {
                 continue;
             }
+            seenPaths.insert(path);
+            ++found;
+            if (!fullRebuild && !fileNeedsIngest(db, path)) {
+                continue;
+            }
             if (ingestFile(db, path)) {
-                ++found;
-                if (found % 100 == 0) {
-                    const QString status = QStringLiteral("Scanning... %1 tracks").arg(found);
+                ++updated;
+                if (updated % 100 == 0) {
+                    const QString status = fullRebuild
+                                              ? QStringLiteral("Scanning... %1 tracks").arg(found)
+                                              : QStringLiteral("Updating... %1 changed").arg(updated);
                     QMetaObject::invokeMethod(this, [this, status]() {
                         m_scanStatus = status;
                         emit scanStatusChanged();
@@ -274,6 +417,36 @@ void LibraryService::scanRoots(const QStringList &roots, bool fullRebuild, QSqlD
             }
         }
     }
+
+    if (!fullRebuild) {
+        QSqlQuery q(db);
+        if (q.exec(QStringLiteral("SELECT path FROM tracks"))) {
+            QStringList stale;
+            while (q.next()) {
+                const QString path = q.value(0).toString();
+                if (pathUnderRoots(path, roots) && !seenPaths.contains(path)) {
+                    stale << path;
+                }
+            }
+            QSqlQuery del(db);
+            del.prepare(QStringLiteral("DELETE FROM tracks WHERE path = ?"));
+            for (const QString &path : stale) {
+                del.addBindValue(path);
+                del.exec();
+            }
+        }
+    }
+}
+
+bool LibraryService::fileNeedsIngest(QSqlDatabase &db, const QString &path) {
+    const qint64 mtime = QFileInfo(path).lastModified().toSecsSinceEpoch();
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("SELECT modified_time FROM tracks WHERE path = ?"));
+    q.addBindValue(path);
+    if (q.exec() && q.next()) {
+        return q.value(0).toLongLong() != mtime;
+    }
+    return true;
 }
 
 bool LibraryService::ingestFile(QSqlDatabase &db, const QString &path) {

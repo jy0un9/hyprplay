@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQml.Models
 import components 1.0
 
 Pane {
@@ -71,6 +72,7 @@ Pane {
 
         MenuItem {
             text: "Edit artist tags"
+            Accessible.name: text
             onTriggered: {
                 App.selectArtist(artistContextMenu.artistName)
                 App.openArtistTagEditor()
@@ -79,6 +81,7 @@ Pane {
         MenuSeparator {}
         MenuItem {
             text: App.discogs.busy ? "Fetching from Discogs…" : "Fetch from Discogs"
+            Accessible.name: text
             enabled: !App.discogs.busy
             onTriggered: {
                 App.selectArtist(artistContextMenu.artistName)
@@ -88,6 +91,7 @@ Pane {
         MenuSeparator {}
         MenuItem {
             text: App.lyrics.busy ? "Fetching lyrics…" : "Fetch lyrics for all tracks"
+            Accessible.name: text
             enabled: !App.lyrics.busy
             onTriggered: {
                 App.selectArtist(artistContextMenu.artistName)
@@ -102,6 +106,7 @@ Pane {
 
         MenuItem {
             text: "Edit album tags"
+            Accessible.name: text
             onTriggered: {
                 App.selectAlbum(albumContextMenu.albumName)
                 App.openAlbumTagEditor()
@@ -109,6 +114,7 @@ Pane {
         }
         MenuItem {
             text: App.discogs.busy ? "Fetching from Discogs…" : "Fetch album info from Discogs"
+            Accessible.name: text
             enabled: !App.discogs.busy
             onTriggered: {
                 App.selectAlbum(albumContextMenu.albumName)
@@ -116,8 +122,35 @@ Pane {
             }
         }
         MenuSeparator {}
+        Menu {
+            id: addAlbumToPlaylistMenu
+            title: "Add album to playlist"
+
+            Instantiator {
+                model: App.playlistItems
+                delegate: MenuItem {
+                    text: model.name
+                    Accessible.name: "Add album to " + model.name
+                    onTriggered: {
+                        App.selectAlbum(albumContextMenu.albumName)
+                        App.addAlbumToPlaylist(model.name)
+                    }
+                }
+                onObjectAdded: (index, object) => addAlbumToPlaylistMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => addAlbumToPlaylistMenu.removeItem(object)
+            }
+            MenuItem {
+                text: "No playlists yet — create one in Playlists"
+                Accessible.name: text
+                enabled: false
+                visible: App.playlistItems.count === 0
+                height: visible ? implicitHeight : 0
+            }
+        }
+        MenuSeparator {}
         MenuItem {
             text: App.lyrics.busy ? "Fetching lyrics…" : "Fetch lyrics for album"
+            Accessible.name: text
             enabled: !App.lyrics.busy
             onTriggered: {
                 App.selectAlbum(albumContextMenu.albumName)
@@ -132,12 +165,40 @@ Pane {
 
         MenuItem {
             text: "Edit tags"
+            Accessible.name: text
+            enabled: App.multiSelectedTrackCount <= 1
             onTriggered: App.openTrackTagEditor(trackContextMenu.trackIndex)
+        }
+        MenuSeparator {}
+        Menu {
+            id: addTrackToPlaylistMenu
+            title: App.multiSelectedTrackCount > 1
+                   ? ("Add " + App.multiSelectedTrackCount + " tracks to playlist")
+                   : "Add to playlist"
+
+            Instantiator {
+                model: App.playlistItems
+                delegate: MenuItem {
+                    text: model.name
+                    Accessible.name: addTrackToPlaylistMenu.title + " " + model.name
+                    onTriggered: App.addSelectedTracksToPlaylist(model.name)
+                }
+                onObjectAdded: (index, object) => addTrackToPlaylistMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => addTrackToPlaylistMenu.removeItem(object)
+            }
+            MenuItem {
+                text: "No playlists yet — create one in Playlists"
+                Accessible.name: text
+                enabled: false
+                visible: App.playlistItems.count === 0
+                height: visible ? implicitHeight : 0
+            }
         }
         MenuSeparator {}
         MenuItem {
             text: App.lyrics.busy ? "Fetching lyrics…" : "Fetch lyrics"
-            enabled: !App.lyrics.busy
+            Accessible.name: text
+            enabled: !App.lyrics.busy && App.multiSelectedTrackCount <= 1
             onTriggered: App.fetchLyricsForTrackIndex(trackContextMenu.trackIndex)
         }
     }
@@ -450,16 +511,14 @@ Pane {
                             id: trackDelegate
                             width: trackList.width
                             text: model.title
+                            accessibleName: (model.trackNumber > 0 ? model.trackNumber + ". " : "")
+                                             + model.title
                             searchHighlight: App.librarySearchOpen
                                              && App.librarySearchScope === "tracks"
                             highlighted: index === App.selectedTrackIndex
+                            multiSelected: App.multiSelectedTrackIndices.indexOf(index) >= 0
                             accented: App.libraryFocusColumn === "tracks"
                                       && index === App.selectedTrackIndex
-                            onClicked: {
-                                App.setLibraryFocusColumn("tracks")
-                                App.setSelectedTrackIndex(index)
-                                App.playTrackIndex(index)
-                            }
 
                             contentItem: RowLayout {
                                 spacing: Theme.spaceSm
@@ -467,7 +526,8 @@ Pane {
                                 Label {
                                     text: model.trackNumber > 0 ? model.trackNumber : index + 1
                                     opacity: (App.playback.currentPath === model.path
-                                              || index === App.selectedTrackIndex) ? 1 : 0.55
+                                              || index === App.selectedTrackIndex
+                                              || trackDelegate.multiSelected) ? 1 : 0.55
                                     color: Theme.foreground
                                     Layout.preferredWidth: 28
                                 }
@@ -480,7 +540,7 @@ Pane {
                                     font: trackDelegate.font
                                     color: Theme.foreground
                                     opacity: trackDelegate.enabled
-                                             ? (trackDelegate.highlighted ? 1 : 0.92) : 0.45
+                                             ? (trackDelegate.highlighted || trackDelegate.multiSelected ? 1 : 0.92) : 0.45
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
                                 }
@@ -500,9 +560,18 @@ Pane {
                                 }
                             }
 
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.LeftButton
+                                onClicked: function(mouse) {
+                                    App.handleTrackClick(index, mouse.modifiers)
+                                }
+                            }
+
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
                                 onTapped: {
+                                    App.prepareTrackContextMenu(index)
                                     trackContextMenu.trackIndex = index
                                     trackContextMenu.popup()
                                 }
@@ -586,6 +655,8 @@ Pane {
                     Layout.alignment: Qt.AlignVCenter
                     placeholderText: searchPlaceholder()
                     selectByMouse: true
+                    Accessible.name: "Library search"
+                    Accessible.role: Accessible.EditableText
                     onTextChanged: {
                         if (App.librarySearchQuery !== text)
                             App.setLibrarySearchQuery(text)
@@ -604,6 +675,8 @@ Pane {
                     Layout.alignment: Qt.AlignVCenter
                     text: "Esc"
                     display: AbstractButton.TextOnly
+                    Accessible.name: "Close search"
+                    Accessible.role: Accessible.Button
                     onClicked: App.closeLibrarySearch()
                 }
             }

@@ -3,6 +3,7 @@
 ![Platform](https://img.shields.io/badge/platform-Linux-blue)
 ![Qt](https://img.shields.io/badge/Qt-6-41cd52)
 ![Audio](https://img.shields.io/badge/playback-libmpv-purple)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 A native Qt 6 desktop music player for local FLAC and Opus libraries on Linux — built for Omarchy/Hyprland with Wayland-first display detection, MPRIS2 integration, and synced LRC lyrics.
 
@@ -14,23 +15,25 @@ A native Qt 6 desktop music player for local FLAC and Opus libraries on Linux �
 
 ## Features
 
-- **Library browser** — artist / album / track columns with fuzzy search (`/` to open, scope follows hover)
-- **libmpv playback** — queue, repeat, shuffle, gapless-friendly seeking, PipeWire/Pulse/ALSA output
+- **Library browser** — artist / album / track columns with fuzzy search (`/` to open, scope follows hover); optional filesystem watch for incremental rescans
+- **libmpv playback** — queue, Fisher–Yates shuffle, repeat, gapless-friendly seeking, PipeWire/Pulse/ALSA output
 - **Now playing** — waveform seek bar, album art, quality label (FLAC bit-depth / Opus bitrate), synced karaoke lyrics (`.lrc`)
-- **Playlists** — create, delete, and play M3U-style playlists stored beside your library
+- **Playlists** — M3U-style playlists beside your library; add album/track/multi-select; drag track numbers to reorder
 - **Tag editing** — in-app editor for track, album, and artist tags via TagLib
-- **Import inbox** — drop albums into an inbox folder, review metadata, ingest into the library
-- **Discogs & beets** — fetch artist metadata from Discogs; optional beets CLI integration for autotagging
-- **MPRIS2** — registers as `org.mpris.MediaPlayer2.qt-music` for desktop media keys and player applets
+- **Import inbox** — drop albums into an inbox, review per-album, ingest selected into the library
+- **Discogs & beets** — fetch artist/album metadata from Discogs; optional beets CLI for autotagging
+- **Secrets** — Discogs/Genius tokens prefer the system keyring (libsecret); fallback `secrets.toml` with mode `0600`
+- **MPRIS2** — `org.mpris.MediaPlayer2.qt-music` with LoopStatus/Shuffle, Seek/SetPosition, OpenUri, and desktop media keys
+- **Accessibility** — named roles on nav, lists, seek/volume, empty states, and menus for screen readers
 - **Omarchy theme** — reads system accent/background colors and icon theme for a consistent desktop look
-- **Layout persistence** — sidebar collapse state and split-pane sizes saved to config across restarts
+- **Layout persistence** — Browse/Playlists split-pane widths saved to config across restarts
 
 ## Requirements
 
 Arch Linux packages (adjust equivalents for your distro):
 
 ```bash
-sudo pacman -S qt6-base qt6-declarative mpv taglib ffmpeg
+sudo pacman -S qt6-base qt6-declarative mpv taglib ffmpeg libsecret
 ```
 
 Optional:
@@ -50,27 +53,58 @@ make -j$(nproc)
 
 Run from a terminal inside your Wayland session (Hyprland/Omarchy). The `./qt-music` launcher script discovers the Wayland socket under `$XDG_RUNTIME_DIR` when your shell did not inherit `WAYLAND_DISPLAY`.
 
+## Tests
+
+```bash
+cd tests
+qmake6 tests.pro
+make -j$(nproc)
+./qt-music-tests
+```
+
+CI (GitHub Actions) runs the unit suite plus an offscreen QML smoke:
+
+```bash
+QT_QPA_PLATFORM=offscreen timeout 5 ./qt-music-bin
+```
+
 ## Install
 
-Default install location is `~/.local` (no sudo):
+**Primary install is `/usr/local`** (same binary the app launcher and PATH use on this machine):
 
 ```bash
 qmake6 qt-music.pro
 make -j$(nproc)
-make install
-```
-
-Ensure `~/.local/bin` is on your `PATH`, then launch from the app menu or run `qt-music`.
-
-System-wide install to `/usr/local`:
-
-```bash
-qmake6 qt-music.pro PREFIX=/usr/local
-make -j$(nproc)
 sudo make install
 ```
 
-Installs:
+Then restart via the app menu or `/usr/local/bin/qt-music`.
+
+Optional user install (no sudo) — use only if you are not also installing to `/usr/local`:
+
+```bash
+qmake6 qt-music.pro PREFIX=$HOME/.local
+make -j$(nproc)
+make install
+```
+
+Ensure `~/.local/bin` is on your `PATH`. If both prefixes are installed, the
+launcher prints a warning; remove the user copy with:
+
+```bash
+qmake6 qt-music.pro PREFIX=$HOME/.local
+make uninstall
+```
+
+Install does **not** touch library data, playlists, or config:
+
+| Data | Location |
+| --- | --- |
+| Config / secrets | `~/.config/qt-music/` (`secrets.toml` mode `0600`; tokens prefer the system keyring when Secret Service is available) |
+| Library DB | `~/.local/share/qt-music/` |
+| Playlists / music / covers | Paths in `config.toml` (e.g. `~/Music/...`) |
+
+Installed files:
 
 | Path | Purpose |
 | --- | --- |
@@ -86,19 +120,21 @@ Installs:
 | `/`, `Ctrl+F`, `Ctrl+K` | Open library search (Browse view) |
 | `Tab` (in search) | Cycle search scope (artists → albums → tracks) |
 | `Space` | Play / pause (when no text field is focused) |
-| `↑` / `↓` | Move in artists / albums list |
-| `←` / `→` | Back / forward in library (drill in-out) |
+| `↑` / `↓` | Move in Browse or Playlists columns |
+| `←` / `→` | Column focus (→ plays highlighted track) |
 | `PgUp` / `PgDn` | Seek backward / forward by step |
 | `W` / `A` / `S` / `D` | Same as arrows (enable in Settings → Appearance) |
 | `J` / `K` | Next / previous track |
-| `Enter` | Play selected track |
-| `Delete` (playlists) | Remove focused playlist track |
+| `Enter` | Play selection (Browse track / playlist / playlist track) |
+| `Ctrl+click` / `Shift+click` | Multi-select tracks in Browse |
+| `Ctrl+A` | Select all visible tracks (Browse) |
+| `Delete` (playlists) | Delete playlist (left column) or remove track (right) |
 | `Ctrl+N` | New playlist (focus name field) |
 | `Ctrl+,` | Open settings |
 | `?` | Keyboard shortcut help |
-| `Esc` | Close dialog / library search |
+| `Esc` | Close dialog / library search / clear multi-select |
 
-Use the sidebar to switch between **Browse**, **Playlists**, **Import**, and **Settings**. Right-click artists, albums, or tracks in the library for tag editing and Discogs fetch.
+Use the top tabs to switch between **Browse**, **Playlists**, **Import**, and **Settings**. Right-click artists, albums, or tracks for tag editing, Discogs fetch, and **Add to playlist** (including the current multi-select). In Playlists, drag the track-number handle to reorder.
 
 ## Configuration
 
@@ -111,6 +147,8 @@ Example:
 ```toml
 [library]
 paths = ["~/Music"]
+scan_on_launch = true
+library_watch = true   # auto-detect adds/removes under library paths
 lyrics_dir = "~/Music/Lyrics"
 
 [playlists]
@@ -122,12 +160,11 @@ seek_step_secs = 5
 lyrics_offset_ms = 0   # positive = show lyrics earlier; negative = later
 
 [layout]
-sidebar_collapsed = false
-sidebar_width = 208
 library_artists_width = 220
 library_albums_width = 240
 side_panel_width = 300
 now_playing_height = 108
+playlists_list_width = 260
 
 [beets]
 binary = "beet"
@@ -145,8 +182,11 @@ Place sidecar `.lrc` files next to tracks or under `lyrics_dir` (flat or `Artist
 qt-music/
 ├── qt-music.pro          # qmake project file
 ├── qt-music              # launcher script (Wayland/Pulse detection)
+├── tests/                # Qt Test unit suite (FuzzyMatch, LRC, M3U, lyrics parsers)
+├── .github/workflows/    # CI: unit tests + offscreen QML smoke
 ├── desktop/              # .desktop entry and icons
 ├── resources/            # Qt resource bundle (QML, assets)
+├── ROADMAP.md            # backlog and completed Should items
 └── src/
     ├── main.cpp
     ├── core/             # services (library, playback, config, import, tags, …)
@@ -157,4 +197,8 @@ qt-music/
 
 ## Status
 
-Active personal project — API and config keys may change between commits. Bug reports and patches welcome.
+Active personal project — API and config keys may change between commits. See [ROADMAP.md](ROADMAP.md) for completed work and remaining Nice-to-haves. Bug reports and patches welcome.
+
+## License
+
+[MIT](LICENSE)

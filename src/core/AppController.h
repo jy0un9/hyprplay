@@ -60,6 +60,10 @@ class AppController : public QObject {
     Q_PROPERTY(QString librarySearchScope READ librarySearchScope NOTIFY librarySearchChanged)
     Q_PROPERTY(QString libraryFocusColumn READ libraryFocusColumn NOTIFY libraryFocusChanged)
     Q_PROPERTY(int selectedTrackIndex READ selectedTrackIndex NOTIFY selectionChanged)
+    Q_PROPERTY(int multiSelectedTrackCount READ multiSelectedTrackCount NOTIFY multiSelectionChanged)
+    Q_PROPERTY(QVariantList multiSelectedTrackIndices READ multiSelectedTrackIndices NOTIFY multiSelectionChanged)
+    Q_PROPERTY(QString playlistFocusColumn READ playlistFocusColumn NOTIFY playlistFocusChanged)
+    Q_PROPERTY(int selectedPlaylistTrackIndex READ selectedPlaylistTrackIndex NOTIFY playlistFocusChanged)
     Q_PROPERTY(QString noticeText READ noticeText NOTIFY noticeChanged)
     Q_PROPERTY(QString noticeKind READ noticeKind NOTIFY noticeChanged)
     Q_PROPERTY(int noticeSerial READ noticeSerial NOTIFY noticeChanged)
@@ -104,6 +108,10 @@ public:
     QString librarySearchScope() const { return m_librarySearchScope; }
     QString libraryFocusColumn() const { return m_libraryFocusColumn; }
     int selectedTrackIndex() const { return m_selectedTrackIndex; }
+    int multiSelectedTrackCount() const { return m_multiSelectedTracks.size(); }
+    QVariantList multiSelectedTrackIndices() const;
+    QString playlistFocusColumn() const { return m_playlistFocusColumn; }
+    int selectedPlaylistTrackIndex() const { return m_selectedPlaylistTrackIndex; }
     QString noticeText() const { return m_noticeText; }
     QString noticeKind() const { return m_noticeKind; }
     int noticeSerial() const { return m_noticeSerial; }
@@ -131,6 +139,17 @@ public:
     Q_INVOKABLE void libraryMoveRight();
     Q_INVOKABLE void setLibraryFocusColumn(const QString &column);
     Q_INVOKABLE void setSelectedTrackIndex(int index);
+    Q_INVOKABLE bool isTrackMultiSelected(int index) const;
+    Q_INVOKABLE void handleTrackClick(int index, int modifiers);
+    Q_INVOKABLE void prepareTrackContextMenu(int index);
+    Q_INVOKABLE void selectAllVisibleTracks();
+    Q_INVOKABLE void clearMultiTrackSelection();
+    Q_INVOKABLE void playlistMoveUp();
+    Q_INVOKABLE void playlistMoveDown();
+    Q_INVOKABLE void playlistMoveLeft();
+    Q_INVOKABLE void playlistMoveRight();
+    Q_INVOKABLE void setPlaylistFocusColumn(const QString &column);
+    Q_INVOKABLE void setSelectedPlaylistTrackIndex(int index);
     Q_INVOKABLE void notify(const QString &text, const QString &kind = {});
     Q_INVOKABLE void selectPlaylist(const QString &name);
     Q_INVOKABLE void playPlaylistTrackIndex(int index);
@@ -139,6 +158,10 @@ public:
     Q_INVOKABLE void deleteSelectedPlaylist();
     Q_INVOKABLE void renameSelectedPlaylist(const QString &name);
     Q_INVOKABLE void removePlaylistTrack(int index);
+    Q_INVOKABLE void movePlaylistTrack(int fromIndex, int toIndex);
+    Q_INVOKABLE void addTrackToPlaylist(int trackIndex, const QString &playlistName);
+    Q_INVOKABLE void addSelectedTracksToPlaylist(const QString &playlistName);
+    Q_INVOKABLE void addAlbumToPlaylist(const QString &playlistName);
     Q_INVOKABLE void openTrackTagEditor(int index);
     Q_INVOKABLE void openAlbumTagEditor();
     Q_INVOKABLE void openArtistTagEditor();
@@ -156,8 +179,8 @@ public:
                                   const QString &lyricsDir, const QString &beetsBinary,
                                   bool beetsNomove, const QString &discogsToken,
                                   const QString &uiFontFamily, int uiFontSize, bool scanOnLaunch,
-                                  bool wasdNavigation, bool tooltipsEnabled, bool lyricsNetease,
-                                  bool lyricsPlain);
+                                  bool libraryWatchEnabled, bool wasdNavigation,
+                                  bool tooltipsEnabled, bool lyricsNetease, bool lyricsPlain);
     Q_INVOKABLE void setDacPassthrough(bool enabled);
     Q_INVOKABLE void fetchLyricsForPlayingTrack();
     Q_INVOKABLE void fetchLyricsForTrackIndex(int index);
@@ -177,6 +200,8 @@ signals:
     void libraryFocusChanged();
     void noticeChanged();
     void albumDiscogsChanged();
+    void playlistFocusChanged();
+    void multiSelectionChanged();
 
 private:
     void refreshArtists();
@@ -184,6 +209,7 @@ private:
     void refreshTracks();
     void refreshPlaylistItems();
     void refreshPlaylistTracks();
+    void clearMultiTrackSelectionInternal(bool emitSignal);
     void reloadPlaylistsIfReady();
     void onTrackChanged();
     void onDiscogsArtistFetched(const QString &artistName, bool success);
@@ -237,6 +263,10 @@ private:
     QString m_librarySearchScope = QStringLiteral("artists");
     QString m_libraryFocusColumn = QStringLiteral("artists");
     int m_selectedTrackIndex = -1;
+    QList<int> m_multiSelectedTracks;
+    int m_multiSelectAnchor = -1;
+    QString m_playlistFocusColumn = QStringLiteral("playlists");
+    int m_selectedPlaylistTrackIndex = -1;
     QString m_noticeText;
     QString m_noticeKind;
     int m_noticeSerial = 0;

@@ -127,8 +127,12 @@ ApplicationWindow {
         sequence: "Up"
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (!root.textInputFocused() && App.mainView === "library")
+            if (root.textInputFocused())
+                return
+            if (App.mainView === "library")
                 App.libraryMoveUp()
+            else if (App.mainView === "playlists")
+                App.playlistMoveUp()
         }
     }
 
@@ -136,8 +140,12 @@ ApplicationWindow {
         sequence: "Down"
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (!root.textInputFocused() && App.mainView === "library")
+            if (root.textInputFocused())
+                return
+            if (App.mainView === "library")
                 App.libraryMoveDown()
+            else if (App.mainView === "playlists")
+                App.playlistMoveDown()
         }
     }
 
@@ -145,8 +153,12 @@ ApplicationWindow {
         sequence: "Left"
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (!root.steppingFocused() && App.mainView === "library")
+            if (root.steppingFocused())
+                return
+            if (App.mainView === "library")
                 App.libraryMoveLeft()
+            else if (App.mainView === "playlists")
+                App.playlistMoveLeft()
         }
     }
 
@@ -154,8 +166,12 @@ ApplicationWindow {
         sequence: "Right"
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (!root.steppingFocused() && App.mainView === "library")
+            if (root.steppingFocused())
+                return
+            if (App.mainView === "library")
                 App.libraryMoveRight()
+            else if (App.mainView === "playlists")
+                App.playlistMoveRight()
         }
     }
 
@@ -182,8 +198,12 @@ ApplicationWindow {
         enabled: App.config.wasdNavigation
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (!root.textInputFocused() && App.mainView === "library")
+            if (root.textInputFocused())
+                return
+            if (App.mainView === "library")
                 App.libraryMoveUp()
+            else if (App.mainView === "playlists")
+                App.playlistMoveUp()
         }
     }
 
@@ -192,8 +212,12 @@ ApplicationWindow {
         enabled: App.config.wasdNavigation
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (!root.textInputFocused() && App.mainView === "library")
+            if (root.textInputFocused())
+                return
+            if (App.mainView === "library")
                 App.libraryMoveDown()
+            else if (App.mainView === "playlists")
+                App.playlistMoveDown()
         }
     }
 
@@ -202,8 +226,12 @@ ApplicationWindow {
         enabled: App.config.wasdNavigation
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (!root.steppingFocused() && App.mainView === "library")
+            if (root.steppingFocused())
+                return
+            if (App.mainView === "library")
                 App.libraryMoveLeft()
+            else if (App.mainView === "playlists")
+                App.playlistMoveLeft()
         }
     }
 
@@ -212,8 +240,12 @@ ApplicationWindow {
         enabled: App.config.wasdNavigation
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (!root.steppingFocused() && App.mainView === "library")
+            if (root.steppingFocused())
+                return
+            if (App.mainView === "library")
                 App.libraryMoveRight()
+            else if (App.mainView === "playlists")
+                App.playlistMoveRight()
         }
     }
 
@@ -258,8 +290,8 @@ ApplicationWindow {
         context: Qt.ApplicationShortcut
         onActivated: {
             if (!root.textInputFocused() && App.mainView === "playlists"
-                && playlistsLoader.item && playlistsLoader.item.removeCurrentPlaylistTrack)
-                playlistsLoader.item.removeCurrentPlaylistTrack()
+                && playlistsLoader.item && playlistsLoader.item.handleDelete)
+                playlistsLoader.item.handleDelete()
         }
     }
 
@@ -292,14 +324,25 @@ ApplicationWindow {
     }
 
     Shortcut {
+        sequence: "Ctrl+A"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            if (!root.textInputFocused() && App.mainView === "library")
+                App.selectAllVisibleTracks()
+        }
+    }
+
+    Shortcut {
         sequence: "Escape"
         context: Qt.ApplicationShortcut
-        enabled: App.librarySearchOpen || helpDialog.visible
+        enabled: App.librarySearchOpen || helpDialog.visible || App.multiSelectedTrackCount > 0
         onActivated: {
             if (helpDialog.visible)
                 helpDialog.close()
-            else
+            else if (App.librarySearchOpen)
                 App.closeLibrarySearch()
+            else
+                App.clearMultiTrackSelection()
         }
     }
 
@@ -574,19 +617,25 @@ ApplicationWindow {
             Label { text: "Space"; font.bold: true; color: Theme.foreground }
             Label { text: "Play / pause"; color: Theme.foreground }
             Label { text: "↑ / ↓"; font.bold: true; color: Theme.foreground }
-            Label { text: "Move in artists / albums list"; color: Theme.foreground }
+            Label { text: "Move in Browse / Playlists columns"; color: Theme.foreground }
             Label { text: "← / →"; font.bold: true; color: Theme.foreground }
-            Label { text: "Back / forward (drill in-out)"; color: Theme.foreground }
+            Label { text: "Column focus (→ plays on tracks)"; color: Theme.foreground }
             Label { text: "PgUp / PgDn"; font.bold: true; color: Theme.foreground }
             Label { text: "Seek backward / forward"; color: Theme.foreground }
             Label { text: "W/A/S/D (optional)"; font.bold: true; color: Theme.foreground }
-            Label { text: "Same as arrows when enabled in Settings"; color: Theme.foreground }
+            Label { text: "Same as arrows (Settings → Appearance)"; color: Theme.foreground }
             Label { text: "J / K"; font.bold: true; color: Theme.foreground }
             Label { text: "Next / previous track"; color: Theme.foreground }
             Label { text: "Enter"; font.bold: true; color: Theme.foreground }
-            Label { text: "Play selected track"; color: Theme.foreground }
+            Label { text: "Play selection"; color: Theme.foreground }
             Label { text: "Delete (playlists)"; font.bold: true; color: Theme.foreground }
-            Label { text: "Remove playlist track"; color: Theme.foreground }
+            Label { text: "Delete playlist or remove track"; color: Theme.foreground }
+            Label { text: "Ctrl+click / Shift+click"; font.bold: true; color: Theme.foreground }
+            Label { text: "Multi-select tracks in Browse"; color: Theme.foreground }
+            Label { text: "Ctrl+A"; font.bold: true; color: Theme.foreground }
+            Label { text: "Select all tracks in album"; color: Theme.foreground }
+            Label { text: "Drag track # (Playlists)"; font.bold: true; color: Theme.foreground }
+            Label { text: "Reorder playlist tracks"; color: Theme.foreground }
             Label { text: "Ctrl+N"; font.bold: true; color: Theme.foreground }
             Label { text: "New playlist"; color: Theme.foreground }
             Label { text: "Ctrl+,"; font.bold: true; color: Theme.foreground }
@@ -594,7 +643,7 @@ ApplicationWindow {
             Label { text: "?"; font.bold: true; color: Theme.foreground }
             Label { text: "This help"; color: Theme.foreground }
             Label { text: "Esc"; font.bold: true; color: Theme.foreground }
-            Label { text: "Close dialog / search"; color: Theme.foreground }
+            Label { text: "Close dialog / search / clear multi-select"; color: Theme.foreground }
         }
     }
 }

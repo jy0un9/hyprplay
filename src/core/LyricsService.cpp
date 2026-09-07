@@ -1,6 +1,8 @@
 #include "LyricsService.h"
 
 #include "ConfigService.h"
+#include "SecretsStore.h"
+#include "LyricsParsers.h"
 
 #include <QDir>
 #include <QDateTime>
@@ -58,62 +60,6 @@ void applyTimeout(QNetworkRequest &request) {
     request.setTransferTimeout(15000);
 }
 
-QString geniusSecretsPath() {
-    const QString appDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
-    QDir().mkpath(appDir);
-    return appDir + QStringLiteral("/secrets.toml");
-}
-
-QString readGeniusTokenFromSecrets(const QString &path) {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return {};
-    }
-    const QString content = QString::fromUtf8(file.readAll());
-    static const QRegularExpression re(
-        QStringLiteral("\\[genius\\][^\\[]*?token\\s*=\\s*\"([^\"]*)\""));
-    const QRegularExpressionMatch match = re.match(content);
-    if (match.hasMatch()) {
-        return match.captured(1).trimmed();
-    }
-    return {};
-}
-
-bool writeGeniusTokenToSecrets(const QString &path, const QString &token) {
-    QString content;
-    QFile in(path);
-    if (in.exists()) {
-        if (!in.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            return false;
-        }
-        content = QString::fromUtf8(in.readAll());
-        in.close();
-    }
-    static const QRegularExpression sectionRe(
-        QStringLiteral("(\\[genius\\][^\\[]*?token\\s*=\\s*\")[^\"]*(\")"));
-    if (sectionRe.match(content).hasMatch()) {
-        content.replace(sectionRe, QStringLiteral("\\1%1\\2").arg(token));
-    } else {
-        if (!content.isEmpty() && !content.endsWith(QLatin1Char('\n'))) {
-            content.append(QLatin1Char('\n'));
-        }
-        content.append(QStringLiteral("[genius]\ntoken = \"%1\"\n").arg(token));
-    }
-    QFile out(path);
-    if (!out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        return false;
-    }
-    out.write(content.toUtf8());
-    return true;
-}
-
-QString normalizeTitle(const QString &title) {
-    QString normalized = title.toLower();
-    // Drop parentheticals such as "(Remastered)" or "[Explicit]".
-    normalized.remove(QRegularExpression(QStringLiteral("\\s*[\\(\\[].*?[\\)\\]]")));
-    normalized.remove(QRegularExpression(QStringLiteral("[^a-z0-9 ]")));
-    return normalized.simplified();
-}
 
 } // namespace
 
@@ -179,7 +125,7 @@ void LyricsService::setGeniusToken(const QString &token) {
     if (before == trimmed) {
         return;
     }
-    writeGeniusTokenToSecrets(geniusSecretsPath(), trimmed);
+    SecretsStore::store(SecretsStore::Key::GeniusToken, trimmed);
     m_geniusDead = false;
     emit geniusTokenChanged();
 }
@@ -189,7 +135,7 @@ QString LyricsService::loadGeniusToken() const {
     if (!env.trimmed().isEmpty()) {
         return QString::fromUtf8(env.trimmed());
     }
-    return readGeniusTokenFromSecrets(geniusSecretsPath());
+    return SecretsStore::load(SecretsStore::Key::GeniusToken);
 }
 
 void LyricsService::fetchForTrack(const QVariantMap &track) {
@@ -792,48 +738,8 @@ void LyricsService::finishTrack(bool fetched, bool skipped, const QString &sourc
 QString LyricsService::buildSummary(int fetched, int fetchedLrclib, int fetchedNetease,
                                     int fetchedOv, int fetchedGenius, int skipped,
                                     int knownMiss, int failed) {
-    QString summary;
-    if (fetched == 0 && failed == 0) {
-        if (skipped > 0 && knownMiss == 0) {
-            return QStringLiteral("Lyrics already present");
-        }
-        if (knownMiss > 0 && skipped == 0) {
-            return QStringLiteral("No lyrics available (checked before)");
-        }
-        if (skipped > 0) {
-            return QStringLiteral("%1 already present, %2 with no lyrics available")
-                .arg(skipped)
-                .arg(knownMiss);
-        }
-        return QStringLiteral("No lyrics found");
-    }
-    summary = QStringLiteral("Lyrics: %1 fetched").arg(fetched);
-    QStringList parts;
-    if (fetchedLrclib > 0) {
-        parts << QStringLiteral("LRCLIB %1").arg(fetchedLrclib);
-    }
-    if (fetchedNetease > 0) {
-        parts << QStringLiteral("NetEase %1").arg(fetchedNetease);
-    }
-    if (fetchedOv > 0) {
-        parts << QStringLiteral("lyrics.ovh %1").arg(fetchedOv);
-    }
-    if (fetchedGenius > 0) {
-        parts << QStringLiteral("Genius %1").arg(fetchedGenius);
-    }
-    if (!parts.isEmpty()) {
-        summary += QStringLiteral(" (%1)").arg(parts.join(QStringLiteral(", ")));
-    }
-    if (skipped > 0) {
-        summary += QStringLiteral(", %1 already present").arg(skipped);
-    }
-    if (knownMiss > 0) {
-        summary += QStringLiteral(", %1 with no lyrics available").arg(knownMiss);
-    }
-    if (failed > 0) {
-        summary += QStringLiteral(", %1 failed").arg(failed);
-    }
-    return summary;
+    return LyricsParsers::buildSummary(fetched, fetchedLrclib, fetchedNetease, fetchedOv,
+                                       fetchedGenius, skipped, knownMiss, failed);
 }
 
 void LyricsService::completeSave(const QString &sidecarFile, const QString &text,
@@ -968,121 +874,24 @@ bool LyricsService::durationMatchesMs(qint64 haveMs, double wantSecs) {
 
 qint64 LyricsService::pickNeteaseMatch(const QJsonDocument &doc, const QString &artist,
                                        const QString &title, double wantSecs) {
-    const QJsonObject result = doc.object().value(QStringLiteral("result")).toObject();
-    const QJsonArray songs = result.value(QStringLiteral("songs")).toArray();
-    const QString wantArtist = artist.trimmed();
-    const QString wantTitle = title.trimmed();
-    for (const QJsonValue &value : songs) {
-        const QJsonObject song = value.toObject();
-        QStringList artists;
-        for (const QJsonValue &artistValue :
-             song.value(QStringLiteral("artists")).toArray()) {
-            artists << artistValue.toObject().value(QStringLiteral("name")).toString();
-        }
-        const QString joined = artists.join(QStringLiteral(", "));
-        if (!joined.contains(wantArtist, Qt::CaseInsensitive)
-            && !wantArtist.contains(artists.value(0), Qt::CaseInsensitive)) {
-            continue;
-        }
-        const QString name = song.value(QStringLiteral("name")).toString();
-        if (!name.contains(wantTitle, Qt::CaseInsensitive)
-            && !wantTitle.contains(name, Qt::CaseInsensitive)) {
-            continue;
-        }
-        if (!durationMatchesMs(song.value(QStringLiteral("duration")).toVariant().toLongLong(),
-                               wantSecs)) {
-            continue;
-        }
-        const qint64 id = song.value(QStringLiteral("id")).toVariant().toLongLong();
-        if (id > 0) {
-            return id;
-        }
-    }
-    return 0;
+    return LyricsParsers::pickNeteaseMatch(doc, artist, title, wantSecs);
 }
 
 QString LyricsService::neteaseSyncedFromDoc(const QJsonDocument &doc) {
-    const QJsonObject obj = doc.object();
-    if (obj.value(QStringLiteral("code")).toInt(-1) != 200) {
-        return {};
-    }
-    if (obj.value(QStringLiteral("nolyric")).toBool()
-        || obj.value(QStringLiteral("uncollected")).toBool()) {
-        return {};
-    }
-    return obj.value(QStringLiteral("lrc")).toObject().value(QStringLiteral("lyric")).toString();
+    return LyricsParsers::neteaseSyncedFromDoc(doc);
 }
 
 QString LyricsService::ovPlainFromDoc(const QJsonDocument &doc) {
-    return doc.object().value(QStringLiteral("lyrics")).toString();
+    return LyricsParsers::ovPlainFromDoc(doc);
 }
 
 QString LyricsService::geniusPageFromSearch(const QJsonDocument &doc, const QString &artist,
                                             const QString &title) {
-    const QJsonArray hits =
-        doc.object().value(QStringLiteral("response")).toObject().value(QStringLiteral("hits")).toArray();
-    const QString wantArtist = artist.trimmed();
-    const QString wantTitle = normalizeTitle(title);
-    for (const QJsonValue &value : hits) {
-        const QJsonObject result = value.toObject().value(QStringLiteral("result")).toObject();
-        const QString hitArtist =
-            result.value(QStringLiteral("primary_artist")).toObject().value(QStringLiteral("name")).toString();
-        if (!hitArtist.contains(wantArtist, Qt::CaseInsensitive)
-            && !wantArtist.contains(hitArtist, Qt::CaseInsensitive)) {
-            continue;
-        }
-        const QString hitTitle = normalizeTitle(result.value(QStringLiteral("title")).toString());
-        if (!hitTitle.contains(wantTitle, Qt::CaseInsensitive)
-            && !wantTitle.contains(hitTitle, Qt::CaseInsensitive)) {
-            continue;
-        }
-        const QString url = result.value(QStringLiteral("url")).toString().trimmed();
-        if (!url.isEmpty()) {
-            return url;
-        }
-    }
-    return {};
+    return LyricsParsers::geniusPageFromSearch(doc, artist, title);
 }
 
 QString LyricsService::scrapeGeniusHtml(const QString &html) {
-    if (html.isEmpty()) {
-        return {};
-    }
-    // Genius renders lyrics in <div data-lyrics-container="true"> blocks.
-    // Non-greedy match per block; nested divs are not used inside containers.
-    static const QRegularExpression containerRe(
-        QStringLiteral("<div[^>]*data-lyrics-container=\"true\"[^>]*>(.*?)</div>"),
-        QRegularExpression::DotMatchesEverythingOption
-            | QRegularExpression::CaseInsensitiveOption);
-    QStringList blocks;
-    auto it = containerRe.globalMatch(html);
-    while (it.hasNext()) {
-        QString block = it.next().captured(1);
-        block.replace(QRegularExpression(QStringLiteral("<br\\s*/?>"),
-                                         QRegularExpression::CaseInsensitiveOption),
-                      QStringLiteral("\n"));
-        block.replace(QRegularExpression(QStringLiteral("<[^>]+>")), QString());
-        block.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
-        block.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
-        block.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
-        block.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
-        block.replace(QStringLiteral("&#x27;"), QStringLiteral("'"));
-        block.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
-        block.replace(QStringLiteral("&nbsp;"), QStringLiteral(" "));
-        blocks << block.trimmed();
-    }
-    const QString text = blocks.join(QStringLiteral("\n")).trimmed();
-    // Drop annotation-only or truncated captures.
-    int lines = 0;
-    for (const QString &line : text.split(QLatin1Char('\n'))) {
-        if (!line.trimmed().isEmpty()) {
-            ++lines;
-        }
-    }
-    if (text.length() < 100 || lines < 4) {
-        return {};
-    }
-    return text + QLatin1Char('\n');
+    return LyricsParsers::scrapeGeniusHtml(html);
 }
 
 bool LyricsService::writeSidecar(const QString &filePath, const QString &text) {

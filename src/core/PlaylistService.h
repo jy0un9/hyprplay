@@ -32,7 +32,9 @@ public:
     Q_INVOKABLE bool deletePlaylist(const QString &name);
     Q_INVOKABLE bool renamePlaylist(const QString &oldName, const QString &newName);
     Q_INVOKABLE bool removeTrackFromPlaylist(const QString &playlistName, int index);
+    Q_INVOKABLE bool moveTrackInPlaylist(const QString &playlistName, int fromIndex, int toIndex);
     Q_INVOKABLE bool addTrackToPlaylist(const QString &playlistName, const QVariantMap &track);
+    Q_INVOKABLE int addTracksToPlaylist(const QString &playlistName, const QVariantList &tracks);
 
 public slots:
     void setStatus(const QString &status);

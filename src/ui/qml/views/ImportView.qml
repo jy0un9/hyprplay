@@ -34,13 +34,27 @@ Pane {
 
             Button {
                 text: "Scan Inbox"
+                enabled: !App.importInbox.importing
                 onClicked: App.importInbox.scanInbox()
             }
 
             Button {
-                text: App.importInbox.importing ? "Importing…" : "Import All"
-                highlighted: true
+                text: "Select all"
                 enabled: !App.importInbox.importing && App.importInbox.albums.length > 0
+                onClicked: App.importInbox.setAllAlbumsSelected(true)
+            }
+
+            Button {
+                text: "Skip all"
+                enabled: !App.importInbox.importing && App.importInbox.albums.length > 0
+                onClicked: App.importInbox.setAllAlbumsSelected(false)
+            }
+
+            PrimaryButton {
+                text: App.importInbox.importing
+                      ? "Importing…"
+                      : ("Import selected (" + App.importInbox.selectedCount + ")")
+                enabled: !App.importInbox.importing && App.importInbox.selectedCount > 0
                 onClicked: App.importInbox.startImport(beetsImportField.checked)
             }
 
@@ -48,7 +62,7 @@ Pane {
                 id: beetsImportField
                 text: "Run beets import"
                 checked: App.beets.available
-                enabled: App.beets.available
+                enabled: App.beets.available && !App.importInbox.importing
             }
 
             Button {
@@ -68,10 +82,24 @@ Pane {
 
         Label {
             text: "Inbox: " + (App.config.importInbox.length > 0 ? App.config.importInbox : "(not configured)")
+                  + (App.importInbox.destinationRoot.length > 0
+                     ? ("  →  Library: " + App.importInbox.destinationRoot)
+                     : "")
             opacity: 0.55
             font.pixelSize: Theme.fontCaption
             color: Theme.foreground
             Layout.fillWidth: true
+            elide: Text.ElideMiddle
+        }
+
+        Label {
+            visible: albumList.count > 0
+            text: "Uncheck albums to skip. Each row shows the Opus destination under your library."
+            opacity: 0.6
+            font.pixelSize: Theme.fontCaption
+            color: Theme.foreground
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
         }
 
         ListView {
@@ -82,10 +110,62 @@ Pane {
             boundsBehavior: Flickable.StopAtBounds
             model: App.importInbox.albums
             visible: count > 0 || App.importInbox.importing
+            spacing: 2
 
             delegate: ItemDelegate {
+                id: albumDelegate
                 width: albumList.width
-                text: model.artist + " — " + model.album + "  [" + model.trackCount + " FLAC]"
+                enabled: !App.importInbox.importing
+                padding: Theme.spaceSm
+                Accessible.name: model.artist + " — " + model.album
+                Accessible.role: Accessible.CheckBox
+                Accessible.checkable: true
+                Accessible.checked: model.selected !== false
+
+                background: Rectangle {
+                    radius: 0
+                    color: albumDelegate.hovered
+                           ? Theme.rgba(Theme.selection, 0.85)
+                           : "transparent"
+                }
+
+                contentItem: RowLayout {
+                    spacing: Theme.spaceSm
+
+                    CheckBox {
+                        id: selectBox
+                        checked: model.selected !== false
+                        enabled: !App.importInbox.importing
+                        Accessible.name: "Select " + model.artist + " — " + model.album
+                        onClicked: App.importInbox.setAlbumSelected(index, checked)
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+
+                        Label {
+                            text: model.artist + " — " + model.album
+                            color: Theme.foreground
+                            font.bold: selectBox.checked
+                            opacity: selectBox.checked ? 1 : 0.45
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+
+                        Label {
+                            text: model.trackCount + " FLAC  →  "
+                                  + (model.destDir && model.destDir.length > 0
+                                     ? model.destDir
+                                     : "(set a library path in Settings)")
+                            opacity: selectBox.checked ? 0.6 : 0.35
+                            font.pixelSize: Theme.fontCaption
+                            color: Theme.foreground
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
             }
         }
 

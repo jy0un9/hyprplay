@@ -7,16 +7,23 @@ ItemDelegate {
     property int itemRadius: 0
     property bool searchHighlight: false
     property bool accented: control.highlighted
+    property bool multiSelected: false
+    property string accessibleName: control.text
     leftPadding: Theme.spaceSm + 4
     rightPadding: Theme.spaceSm
     topPadding: Theme.spaceSm
     bottomPadding: Theme.spaceSm
 
+    Accessible.name: accessibleName
+    Accessible.role: Accessible.ListItem
+    Accessible.checkable: true
+    Accessible.checked: control.highlighted || control.multiSelected
+
     background: Rectangle {
         radius: control.itemRadius
         color: {
-            if (control.highlighted)
-                return Theme.rgba(Theme.accent, 0.22)
+            if (control.highlighted || control.multiSelected)
+                return Theme.rgba(Theme.accent, control.highlighted ? 0.22 : 0.14)
             if (control.hovered)
                 return Theme.rgba(Theme.selection, 0.85)
             return "transparent"
