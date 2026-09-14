@@ -255,7 +255,7 @@ void ConfigService::save() {
     }
 
     QTextStream out(&file);
-    out << "# Hyprplay configuration\n\n";
+    out << "# hyprplay config\n\n";
 
     out << "[library]\n";
     out << "paths = [";

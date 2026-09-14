@@ -214,7 +214,7 @@ void LibraryService::ensureLibrary(const QStringList &roots) {
     }
 
     if (m_trackCount > 0 && storedRootsMatch(roots)) {
-        m_scanStatus = QStringLiteral("Library loaded (%1 tracks)").arg(m_trackCount);
+        m_scanStatus.clear();
         emit scanStatusChanged();
         emit scanFinished(true);
         refreshWatchPaths();
@@ -222,7 +222,7 @@ void LibraryService::ensureLibrary(const QStringList &roots) {
     }
 
     if (m_trackCount > 0 && !m_scanOnLaunch) {
-        m_scanStatus = QStringLiteral("Library loaded (%1 tracks) — launch scan off").arg(m_trackCount);
+        m_scanStatus.clear();
         emit scanStatusChanged();
         emit scanFinished(true);
         refreshWatchPaths();
@@ -383,9 +383,7 @@ void LibraryService::startScan(const QStringList &roots, bool fullRebuild) {
             m_scanning = false;
             emit scanningChanged();
             refreshTrackCount();
-            m_scanStatus = fullRebuild
-                               ? QStringLiteral("Scan complete (%1 tracks)").arg(m_trackCount)
-                               : QStringLiteral("Library updated (%1 tracks)").arg(m_trackCount);
+            m_scanStatus.clear();
             emit scanStatusChanged();
             emit scanFinished(true);
             refreshWatchPaths();

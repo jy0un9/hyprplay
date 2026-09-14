@@ -415,6 +415,17 @@ ApplicationWindow {
                              anchors.rightMargin: Theme.spaceLg
                              spacing: Theme.spaceXs
 
+                             Image {
+                                 source: "qrc:/hyprplay.svg"
+                                 sourceSize.width: 22
+                                 sourceSize.height: 22
+                                 Layout.preferredWidth: 22
+                                 Layout.preferredHeight: 22
+                                 Layout.rightMargin: Theme.spaceSm
+                                 fillMode: Image.PreserveAspectFit
+                                 Accessible.name: "Hyprplay"
+                             }
+
                              Label {
                                  text: "Hyprplay"
                                  font.pixelSize: Theme.fontHeading

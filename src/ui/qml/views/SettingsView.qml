@@ -383,7 +383,7 @@ Pane {
                                     Layout.fillWidth: true
                                     Label { text: "Import setup"; color: Theme.foreground; font.pixelSize: Theme.fontTitle; font.bold: true; Layout.fillWidth: true }
                                     Label {
-                                        text: App.beets.available ? "● beet ready" : "○ beet optional"
+                                        text: App.beets.available ? "beet ready" : "beet optional"
                                         color: App.beets.available ? Theme.success : Theme.muted
                                         font.pixelSize: Theme.fontCaption
                                     }
@@ -534,8 +534,8 @@ Pane {
                                 Label { text: "Audio output"; color: Theme.foreground; font.pixelSize: Theme.fontTitle; font.bold: true }
                                 Label {
                                     text: App.playback.audioBackend.length > 0
-                                          ? "●  Backend: " + App.playback.audioBackend
-                                          : "○  Backend: idle — start playback to see the active output"
+                                          ? "Backend: " + App.playback.audioBackend
+                                          : "Backend idle — start playback to see the active output"
                                     color: App.playback.audioBackend.length > 0 ? Theme.success : Theme.muted
                                     font.pixelSize: Theme.fontSmall
                                     wrapMode: Text.WordWrap
@@ -608,8 +608,8 @@ Pane {
                                 }
                                 Label {
                                     text: App.playback.dacPassthrough
-                                          ? "● Active — volume is locked at 100%; use the DAC knob."
-                                          : "○ Off — PipeWire software volume and per-app mixing are active."
+                                          ? "Active — volume locked at 100%; use the DAC knob."
+                                          : "Off — PipeWire software volume and per-app mixing."
                                     color: App.playback.dacPassthrough ? Theme.success : Theme.muted
                                     font.pixelSize: Theme.fontSmall
                                     wrapMode: Text.WordWrap
@@ -704,7 +704,7 @@ Pane {
                                     }
                                 }
                                 Label {
-                                    text: App.lyrics.geniusTokenSet ? "● Genius token configured" : "○ Genius is skipped"
+                                    text: App.lyrics.geniusTokenSet ? "Genius token set" : "Genius not configured"
                                     color: App.lyrics.geniusTokenSet ? Theme.success : Theme.muted
                                     font.pixelSize: Theme.fontSmall
                                 }
@@ -866,7 +866,7 @@ Pane {
                                     Layout.fillWidth: true
                                     Label { text: "Discogs"; color: Theme.foreground; font.pixelSize: Theme.fontTitle; font.bold: true; Layout.fillWidth: true }
                                     Label {
-                                        text: App.discogs.hasToken ? "● Connected" : "○ Not configured"
+                                        text: App.discogs.hasToken ? "Connected" : "Not configured"
                                         color: App.discogs.hasToken ? Theme.success : Theme.muted
                                         font.pixelSize: Theme.fontSmall
                                     }
@@ -1003,7 +1003,7 @@ Pane {
                                         Layout.fillWidth: true
                                     }
                                     Label {
-                                        text: App.discogs.hasToken ? "● Connected" : "○ Not configured"
+                                        text: App.discogs.hasToken ? "Connected" : "Not configured"
                                         color: App.discogs.hasToken ? Theme.success : Theme.muted
                                         font.pixelSize: Theme.fontSmall
                                     }

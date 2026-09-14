@@ -35,8 +35,7 @@
     <keyword>hyprland</keyword>
   </keywords>
   <content_rating type="oars-1.1"/>
-  <!-- Screenshot URL restored when the repo is public / AUR-ready.
-       Local assets: docs/assets/library-browse.png -->
+  <!-- Screenshots: docs/assets/browse.png playlists.png settings.png -->
   <provides>
     <dbus type="session">org.mpris.MediaPlayer2.hyprplay</dbus>
   </provides>
