@@ -8,6 +8,7 @@
 namespace {
 
 constexpr double kNeteaseToleranceSecs = 8.0;
+constexpr double kLrclibToleranceSecs = 10.0;
 
 QString normalizeTitle(const QString &title) {
     QString normalized = title.toLower();
@@ -15,6 +16,13 @@ QString normalizeTitle(const QString &title) {
     normalized.remove(QRegularExpression(QStringLiteral("\\s*[\\(\\[].*?[\\)\\]]")));
     normalized.remove(QRegularExpression(QStringLiteral("[^a-z0-9 ]")));
     return normalized.simplified();
+}
+
+bool durationMatchesSecs(double haveSecs, double wantSecs, double toleranceSecs) {
+    if (haveSecs < 0 || wantSecs < 0) {
+        return true; // unknown duration: accept on content match alone
+    }
+    return qAbs(haveSecs - wantSecs) <= toleranceSecs;
 }
 
 bool durationMatchesMs(qint64 haveMs, double wantSecs) {
@@ -28,12 +36,97 @@ bool durationMatchesMs(qint64 haveMs, double wantSecs) {
 
 namespace LyricsParsers {
 
+QString normalizeQueryText(const QString &text) {
+    QString normalized = text.toLower();
+    // Track-number prefixes from filename-derived titles ("01 - Title").
+    normalized.remove(
+        QRegularExpression(QStringLiteral("^\\s*\\d{1,3}\\s*[-._)\\]]\\s*")));
+    // "feat." markers split artist/title joins inconsistently across DBs.
+    normalized.remove(QRegularExpression(
+        QStringLiteral("\\s*(\\(|\\[)?\\s*(feat\\.?|ft\\.?|featuring)\\s+[^\\]\\)]*(\\)|\\])?")));
+    normalized.remove(QRegularExpression(QStringLiteral("\\s*[\\(\\[].*?[\\)\\]]")));
+    normalized.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N} ]"),
+                                         QRegularExpression::UseUnicodePropertiesOption));
+    return normalized.simplified();
+}
+
+bool syncedUsable(const QString &synced) {
+    if (synced.trimmed().isEmpty()) {
+        return false;
+    }
+    static const QRegularExpression kTimestamp(QStringLiteral("^\\s*\\[\\d{1,3}:\\d{2}"),
+                                                              QRegularExpression::MultilineOption);
+    return kTimestamp.match(synced).hasMatch();
+}
+
+qint64 pickLrclibMatch(const QJsonArray &items, const QString &artist, const QString &title,
+                       const QString &album, double wantSecs) {
+    const QString wantArtist = normalizeQueryText(artist);
+    const QString wantTitle = normalizeQueryText(title);
+    const QString wantAlbum = normalizeQueryText(album);
+    if (wantArtist.isEmpty() || wantTitle.isEmpty()) {
+        return 0;
+    }
+    qint64 bestId = 0;
+    int bestScore = -1;
+    double bestDrift = 1e9;
+    for (const QJsonValue &value : items) {
+        const QJsonObject obj = value.toObject();
+        if (obj.value(QStringLiteral("instrumental")).toBool()) {
+            continue;
+        }
+        if (!LyricsParsers::syncedUsable(
+                obj.value(QStringLiteral("syncedLyrics")).toString())) {
+            continue;
+        }
+        const double haveSecs = obj.value(QStringLiteral("duration")).toDouble(-1.0);
+        if (!durationMatchesSecs(haveSecs, wantSecs, kLrclibToleranceSecs)) {
+            continue;
+        }
+        const QString hitArtist = normalizeQueryText(
+            obj.value(QStringLiteral("artistName")).toString());
+        const QString hitTitle = normalizeQueryText(
+            obj.value(QStringLiteral("trackName")).toString().isEmpty()
+                ? obj.value(QStringLiteral("name")).toString()
+                : obj.value(QStringLiteral("trackName")).toString());
+        const bool titleExact = !hitTitle.isEmpty() && hitTitle == wantTitle;
+        const bool titleNear = !hitTitle.isEmpty()
+            && (hitTitle.contains(wantTitle) || wantTitle.contains(hitTitle));
+        if (!titleExact && !titleNear) {
+            continue;
+        }
+        const bool artistExact = !hitArtist.isEmpty() && hitArtist == wantArtist;
+        const bool artistNear = !hitArtist.isEmpty()
+            && (hitArtist.contains(wantArtist) || wantArtist.contains(hitArtist));
+        if (!artistExact && !artistNear) {
+            continue;
+        }
+        int score = (titleExact ? 4 : 1) + (artistExact ? 2 : 0);
+        if (!wantAlbum.isEmpty()
+            && normalizeQueryText(obj.value(QStringLiteral("albumName")).toString())
+                == wantAlbum) {
+            score += 1;
+        }
+        const double drift =
+            (haveSecs >= 0 && wantSecs >= 0) ? qAbs(haveSecs - wantSecs) : 0.0;
+        if (score > bestScore || (score == bestScore && drift < bestDrift)) {
+            bestScore = score;
+            bestDrift = drift;
+            bestId = obj.value(QStringLiteral("id")).toVariant().toLongLong();
+        }
+    }
+    return bestId > 0 ? bestId : 0;
+}
+
 qint64 pickNeteaseMatch(const QJsonDocument &doc, const QString &artist,
-                                       const QString &title, double wantSecs) {
+                        const QString &title, double wantSecs) {
     const QJsonObject result = doc.object().value(QStringLiteral("result")).toObject();
     const QJsonArray songs = result.value(QStringLiteral("songs")).toArray();
-    const QString wantArtist = artist.trimmed();
-    const QString wantTitle = title.trimmed();
+    const QString wantArtist = normalizeQueryText(artist);
+    const QString wantTitle = normalizeQueryText(title);
+    if (wantArtist.isEmpty() || wantTitle.isEmpty()) {
+        return 0;
+    }
     for (const QJsonValue &value : songs) {
         const QJsonObject song = value.toObject();
         QStringList artists;
@@ -41,14 +134,13 @@ qint64 pickNeteaseMatch(const QJsonDocument &doc, const QString &artist,
              song.value(QStringLiteral("artists")).toArray()) {
             artists << artistValue.toObject().value(QStringLiteral("name")).toString();
         }
-        const QString joined = artists.join(QStringLiteral(", "));
-        if (!joined.contains(wantArtist, Qt::CaseInsensitive)
-            && !wantArtist.contains(artists.value(0), Qt::CaseInsensitive)) {
+        const QString joined = normalizeQueryText(artists.join(QStringLiteral(", ")));
+        const QString first = artists.isEmpty() ? QString() : normalizeQueryText(artists.first());
+        if (!joined.contains(wantArtist) && !wantArtist.contains(first)) {
             continue;
         }
-        const QString name = song.value(QStringLiteral("name")).toString();
-        if (!name.contains(wantTitle, Qt::CaseInsensitive)
-            && !wantTitle.contains(name, Qt::CaseInsensitive)) {
+        const QString name = normalizeQueryText(song.value(QStringLiteral("name")).toString());
+        if (!name.contains(wantTitle) && !wantTitle.contains(name)) {
             continue;
         }
         if (!durationMatchesMs(song.value(QStringLiteral("duration")).toVariant().toLongLong(),

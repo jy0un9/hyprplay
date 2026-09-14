@@ -157,6 +157,8 @@ Control {
     onHoverXChanged: canvas.requestPaint()
     onDragRatioChanged: canvas.requestPaint()
     onDisplayRatioChanged: canvas.requestPaint()
+    onBarPlayedChanged: canvas.requestPaint()
+    onBarUnplayedChanged: canvas.requestPaint()
 
     Connections {
         target: playback
@@ -173,6 +175,11 @@ Control {
         target: media
         function onMediaChanged() { canvas.requestPaint() }
         function onLoadingChanged() { canvas.requestPaint() }
+    }
+
+    Connections {
+        target: Theme
+        function onColorsChanged() { canvas.requestPaint() }
     }
 
     Component.onCompleted: canvas.requestPaint()

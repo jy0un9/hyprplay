@@ -49,6 +49,7 @@ ItemDelegate {
     }
 
     contentItem: Label {
+        id: delegateLabel
         text: control.searchHighlight ? App.highlightSearchMatch(control.text, Theme.accent) : control.text
         textFormat: control.searchHighlight ? Text.RichText : Text.PlainText
         font: control.font
@@ -56,5 +57,10 @@ ItemDelegate {
         opacity: control.enabled ? (control.highlighted ? 1 : 0.92) : 0.45
         elide: Text.ElideRight
         verticalAlignment: Text.AlignVCenter
+        HoverHandler { id: delegateHover }
+        ElisionPopup {
+            visible: delegateHover.hovered && delegateLabel.truncated
+            text: control.text
+        }
     }
 }

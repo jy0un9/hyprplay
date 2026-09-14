@@ -4,10 +4,13 @@
 
 #include <QColor>
 #include <QFont>
+#include <QFontDatabase>
 #include <QFile>
 #include <QFileInfo>
+#include <QCursor>
 #include <QGuiApplication>
 #include <QSet>
+#include <QTimer>
 
 #include <algorithm>
 
@@ -24,6 +27,8 @@ AppController::AppController(QObject *parent) : QObject(parent) {
     m_importInbox = new ImportService(m_config, m_library, m_tags, m_beets, this);
     m_lyrics = new LyricsService(m_config, this);
     m_metadataSearch = new MetadataSearchService(m_config, m_discogs, this);
+    m_enrichment = new LibraryEnrichmentService(m_config, m_library, m_discogs, m_metadataSearch,
+                                               m_tags, m_beets, m_lyrics, this, this);
     m_artists = new ArtistModel(this);
     m_tracks = new TrackListModel(this);
     m_playlistItems = new PlaylistListModel(this);
@@ -31,6 +36,9 @@ AppController::AppController(QObject *parent) : QObject(parent) {
 
     connect(m_library, &LibraryService::scanFinished, this, &AppController::refreshArtists);
     connect(m_library, &LibraryService::scanStatusChanged, this, &AppController::scanStatusChanged);
+    connect(m_playback, &PlaybackService::volumeChanged, this, [this]() {
+        m_config->setVolume(m_playback->volume());
+    });
     connect(m_library, &LibraryService::scanningChanged, this, [this]() {
         if (m_library->scanning()) {
             m_scanToastArmed = true;
@@ -62,11 +70,22 @@ AppController::AppController(QObject *parent) : QObject(parent) {
             &AppController::onDiscogsReleaseFetched);
     connect(m_discogs, &DiscogsService::releasesSearchFinished, this,
             [this](const QVariantList &results) {
+                if (m_enrichment && m_enrichment->active()
+                    && m_enrichment->phase() == QStringLiteral("album")) {
+                    m_enrichment->handleAlbumSearchResults(results);
+                    return;
+                }
+                if (m_bulkDiscogsAlbumsActive) {
+                    handleBulkDiscogsSearch(results);
+                    return;
+                }
                 if (!m_albumDiscogsOpen) {
                     return;
                 }
-                m_albumDiscogsCandidates = results;
-                m_albumDiscogsSelectedIndex = results.isEmpty() ? -1 : 0;
+                const int localTracks = selectedAlbumTrackCount();
+                const QVariantList ranked = rankDiscogsAlbumCandidates(results, localTracks);
+                m_albumDiscogsCandidates = ranked;
+                m_albumDiscogsSelectedIndex = ranked.isEmpty() ? -1 : 0;
                 emit albumDiscogsChanged();
             });
     connect(m_discogs, &DiscogsService::statusChanged, this, [this]() {
@@ -133,10 +152,14 @@ AppController::AppController(QObject *parent) : QObject(parent) {
 void AppController::initialize() {
     m_config->load();
     m_playback->setDacPassthrough(m_config->dacPassthrough());
+    // Apply the stored value before mpv starts so its initialization signal
+    // cannot replace the user's saved volume with PlaybackService's default.
+    m_playback->setVolume(m_config->volume());
+    // Stored before mpv starts so initMpv() applies it at creation; empty = system default.
+    m_playback->setAudioDevice(m_config->audioDevice());
     if (!m_playback->ensureMpv()) {
         qWarning("Audio engine failed to start — playback will not work until mpv initializes");
     }
-    m_playback->setVolume(m_config->volume());
     m_library->setScanOnLaunch(m_config->scanOnLaunch());
     m_library->setWatchEnabled(m_config->libraryWatchEnabled());
     m_library->ensureLibrary(m_config->libraryPaths());
@@ -146,6 +169,7 @@ void AppController::initialize() {
 }
 
 void AppController::saveOnExit() {
+    m_config->setVolume(m_playback->volume());
     m_config->saveOnExit();
 }
 
@@ -198,14 +222,6 @@ void AppController::showSettings() {
         m_mainView = QStringLiteral("settings");
         emit mainViewChanged();
     }
-}
-
-void AppController::showImport() {
-    if (m_mainView != QStringLiteral("import")) {
-        m_mainView = QStringLiteral("import");
-        emit mainViewChanged();
-    }
-    m_importInbox->scanInbox();
 }
 
 void AppController::setLibraryFocusColumn(const QString &column) {
@@ -342,7 +358,17 @@ void AppController::libraryMoveRight() {
     }
     if (m_libraryFocusColumn == QStringLiteral("tracks")) {
         if (m_selectedTrackIndex >= 0 && m_selectedTrackIndex < m_tracks->rowCount()) {
-            playTrackIndex(m_selectedTrackIndex);
+            const QVariantMap track = m_tracks->trackAt(m_selectedTrackIndex);
+            const QString path =
+                QFileInfo(track.value(QStringLiteral("path")).toString()).absoluteFilePath();
+            const bool isPlayingTrack =
+                !path.isEmpty() && path == m_playback->currentPath()
+                && (m_playback->playing() || m_playback->paused());
+            if (isPlayingTrack) {
+                m_playback->seekRelative(10.0);
+            } else {
+                playTrackIndex(m_selectedTrackIndex);
+            }
         }
         return;
     }
@@ -455,7 +481,17 @@ void AppController::playlistMoveRight() {
     if (m_playlistFocusColumn == QStringLiteral("tracks")) {
         if (m_selectedPlaylistTrackIndex >= 0
             && m_selectedPlaylistTrackIndex < m_playlistTracks->rowCount()) {
-            playPlaylistTrackIndex(m_selectedPlaylistTrackIndex);
+            const QVariantMap track = m_playlistTracks->trackAt(m_selectedPlaylistTrackIndex);
+            const QString path =
+                QFileInfo(track.value(QStringLiteral("path")).toString()).absoluteFilePath();
+            const bool isPlayingTrack =
+                !path.isEmpty() && path == m_playback->currentPath()
+                && (m_playback->playing() || m_playback->paused());
+            if (isPlayingTrack) {
+                m_playback->seekRelative(10.0);
+            } else {
+                playPlaylistTrackIndex(m_selectedPlaylistTrackIndex);
+            }
         }
         return;
     }
@@ -840,6 +876,88 @@ void AppController::closeLibrarySearch() {
     refreshArtists();
     refreshAlbums();
     refreshTracks();
+    // Re-emit so QML scrolls to the selection in the restored (unfiltered) lists.
+    emit selectionChanged();
+}
+
+void AppController::syncLibraryFocusToSearchScope() {
+    const QString column = m_librarySearchScope == QStringLiteral("albums")
+                               ? QStringLiteral("albums")
+                               : (m_librarySearchScope == QStringLiteral("tracks")
+                                      ? QStringLiteral("tracks")
+                                      : QStringLiteral("artists"));
+    setLibraryFocusColumn(column);
+}
+
+void AppController::ensureLibrarySearchSelection() {
+    if (!m_librarySearchOpen || m_librarySearchQuery.trimmed().isEmpty()) {
+        return;
+    }
+
+    if (m_librarySearchScope == QStringLiteral("albums")) {
+        if (m_albums.isEmpty()) {
+            return;
+        }
+        if (m_albums.indexOf(m_selectedAlbum) < 0) {
+            selectAlbum(m_albums.first());
+        }
+        return;
+    }
+
+    if (m_librarySearchScope == QStringLiteral("tracks")) {
+        if (m_tracks->rowCount() == 0) {
+            return;
+        }
+        if (m_selectedTrackIndex < 0 || m_selectedTrackIndex >= m_tracks->rowCount()) {
+            clearMultiTrackSelectionInternal(false);
+            m_multiSelectedTracks = {0};
+            m_multiSelectAnchor = 0;
+            setSelectedTrackIndex(0);
+            emit multiSelectionChanged();
+        }
+        return;
+    }
+
+    if (m_artists->rowCount() == 0) {
+        return;
+    }
+    bool found = false;
+    if (!m_selectedArtist.isEmpty()) {
+        for (int i = 0; i < m_artists->rowCount(); ++i) {
+            if (m_artists->artistAt(i) == m_selectedArtist) {
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) {
+        selectArtist(m_artists->artistAt(0));
+    }
+}
+
+void AppController::acceptLibrarySearch() {
+    if (!m_librarySearchOpen) {
+        return;
+    }
+    syncLibraryFocusToSearchScope();
+    ensureLibrarySearchSelection();
+    closeLibrarySearch();
+}
+
+void AppController::librarySearchMoveUp() {
+    if (!m_librarySearchOpen) {
+        return;
+    }
+    syncLibraryFocusToSearchScope();
+    libraryMoveUp();
+}
+
+void AppController::librarySearchMoveDown() {
+    if (!m_librarySearchOpen) {
+        return;
+    }
+    syncLibraryFocusToSearchScope();
+    libraryMoveDown();
 }
 
 void AppController::setLibrarySearchQuery(const QString &query) {
@@ -851,6 +969,7 @@ void AppController::setLibrarySearchQuery(const QString &query) {
     refreshArtists();
     refreshAlbums();
     refreshTracks();
+    ensureLibrarySearchSelection();
 }
 
 void AppController::setLibrarySearchScope(const QString &scope) {
@@ -864,6 +983,7 @@ void AppController::setLibrarySearchScope(const QString &scope) {
         refreshArtists();
         refreshAlbums();
         refreshTracks();
+        ensureLibrarySearchSelection();
     }
 }
 
@@ -905,6 +1025,11 @@ QString AppController::highlightSearchMatch(const QString &text,
     }
     return out;
 }
+
+QPoint AppController::cursorPos() const {
+    return QCursor::pos();
+}
+
 
 void AppController::createPlaylist(const QString &name) {
     if (m_playlists->createPlaylist(name)) {
@@ -971,7 +1096,12 @@ void AppController::addTrackToPlaylist(int trackIndex, const QString &playlistNa
     if (added > 0) {
         refreshPlaylistItems();
         refreshPlaylistTracks();
-        notify(QStringLiteral("Added to \"%1\"").arg(name), QStringLiteral("success"));
+        notify(m_playlists->lastDuplicateSkipCount() > 0
+                   ? m_playlists->status()
+                   : QStringLiteral("Added to \"%1\"").arg(name),
+               QStringLiteral("success"));
+    } else if (m_playlists->lastDuplicateSkipCount() > 0) {
+        notify(m_playlists->status(), QStringLiteral("info"));
     } else {
         notify(QStringLiteral("Failed to add to \"%1\"").arg(name), QStringLiteral("error"));
     }
@@ -1007,9 +1137,13 @@ void AppController::addSelectedTracksToPlaylist(const QString &playlistName) {
     if (added > 0) {
         refreshPlaylistItems();
         refreshPlaylistTracks();
-        notify(added == 1 ? QStringLiteral("Added 1 track to \"%1\"").arg(name)
-                          : QStringLiteral("Added %1 tracks to \"%2\"").arg(added).arg(name),
+        notify(m_playlists->lastDuplicateSkipCount() > 0
+                   ? m_playlists->status()
+                   : (added == 1 ? QStringLiteral("Added 1 track to \"%1\"").arg(name)
+                                 : QStringLiteral("Added %1 tracks to \"%2\"").arg(added).arg(name)),
                QStringLiteral("success"));
+    } else if (m_playlists->lastDuplicateSkipCount() > 0) {
+        notify(m_playlists->status(), QStringLiteral("info"));
     } else {
         notify(QStringLiteral("Failed to add to \"%1\"").arg(name), QStringLiteral("error"));
     }
@@ -1035,9 +1169,13 @@ void AppController::addAlbumToPlaylist(const QString &playlistName) {
     if (added > 0) {
         refreshPlaylistItems();
         refreshPlaylistTracks();
-        notify(added == 1 ? QStringLiteral("Added 1 track to \"%1\"").arg(name)
-                          : QStringLiteral("Added %1 tracks to \"%2\"").arg(added).arg(name),
+        notify(m_playlists->lastDuplicateSkipCount() > 0
+                   ? m_playlists->status()
+                   : (added == 1 ? QStringLiteral("Added 1 track to \"%1\"").arg(name)
+                                 : QStringLiteral("Added %1 tracks to \"%2\"").arg(added).arg(name)),
                QStringLiteral("success"));
+    } else if (m_playlists->lastDuplicateSkipCount() > 0) {
+        notify(m_playlists->status(), QStringLiteral("info"));
     } else {
         notify(QStringLiteral("Failed to add to \"%1\"").arg(name), QStringLiteral("error"));
     }
@@ -1136,10 +1274,21 @@ bool AppController::saveTagEditor(const QVariantMap &fields) {
     return ok;
 }
 
+int AppController::selectedAlbumTrackCount() const {
+    if (m_selectedArtist.isEmpty() || m_selectedAlbum.isEmpty() || !m_library) {
+        return 0;
+    }
+    return m_library->tracksForAlbum(m_selectedArtist, m_selectedAlbum).size();
+}
+
 void AppController::openTagFetch(const QVariantMap &editorFields) {
     QString artist;
     QString album;
     QString albumArtist;
+
+    if (m_titleFixOpen) {
+        closeTitleFix();
+    }
 
     if (!editorFields.isEmpty()) {
         artist = editorFields.value(QStringLiteral("artist")).toString().trimmed();
@@ -1186,7 +1335,19 @@ void AppController::openTagFetch(const QVariantMap &editorFields) {
         current.insert(QStringLiteral("albumArtist"), albumArtist);
     }
     m_metadataSearch->setCurrentFields(current);
-    m_metadataSearch->searchRelease(artist, album, albumArtist);
+    if (!m_selectedArtist.isEmpty() && !m_selectedAlbum.isEmpty()) {
+        m_metadataSearch->setLocalTrackCount(
+            m_library->tracksForAlbum(m_selectedArtist, m_selectedAlbum).size());
+    } else if (m_tagEditorMode == QStringLiteral("track") && !album.isEmpty()) {
+        const QString trackArtist = artist.isEmpty() ? albumArtist : artist;
+        if (!trackArtist.isEmpty()) {
+            m_metadataSearch->setLocalTrackCount(
+                m_library->tracksForAlbum(trackArtist, album).size());
+        }
+    }
+    m_metadataSearch->searchRelease(
+        artist, album, albumArtist,
+        QVariantList{QStringLiteral("CD"), QStringLiteral("Digital")}, {});
 }
 
 void AppController::closeTagFetch() {
@@ -1251,6 +1412,94 @@ bool AppController::applyTagFetch(bool syncBeets) {
     return ok;
 }
 
+void AppController::openTitleFix() {
+    if (m_selectedArtist.isEmpty() || m_selectedAlbum.isEmpty()) {
+        notify(QStringLiteral("Select an album first"), QStringLiteral("error"));
+        return;
+    }
+
+    if (m_tagFetchOpen) {
+        closeTagFetch();
+    }
+
+    const QVariantList tracks = m_library->tracksForAlbum(m_selectedArtist, m_selectedAlbum);
+    if (tracks.isEmpty()) {
+        notify(QStringLiteral("No tracks in this album"), QStringLiteral("error"));
+        return;
+    }
+
+    m_titleFixOpen = true;
+    emit titleFixChanged();
+    m_metadataSearch->clear();
+    m_metadataSearch->setLocalTracksForTitleFix(tracks);
+
+    QVariantMap current;
+    current.insert(QStringLiteral("artist"), m_selectedArtist);
+    current.insert(QStringLiteral("album"), m_selectedAlbum);
+    m_metadataSearch->setCurrentFields(current);
+    m_metadataSearch->searchRelease(
+        m_selectedArtist, m_selectedAlbum, {},
+        QVariantList{QStringLiteral("CD"), QStringLiteral("Digital")}, {});
+}
+
+void AppController::closeTitleFix() {
+    if (!m_titleFixOpen) {
+        return;
+    }
+    m_titleFixOpen = false;
+    m_metadataSearch->clear();
+    emit titleFixChanged();
+}
+
+bool AppController::applyTitleFix(bool syncBeets) {
+    const QVariantList proposals = m_metadataSearch->checkedTitleFixProposals();
+    if (proposals.isEmpty()) {
+        notify(QStringLiteral("No title changes selected"), QStringLiteral("info"));
+        return false;
+    }
+
+    int updated = 0;
+    int failed = 0;
+    for (const QVariant &proposalValue : proposals) {
+        const QVariantMap proposal = proposalValue.toMap();
+        const QString path = proposal.value(QStringLiteral("path")).toString();
+        const QString title = proposal.value(QStringLiteral("proposed")).toString().trimmed();
+        if (path.isEmpty() || title.isEmpty()) {
+            ++failed;
+            continue;
+        }
+        QVariantMap fields;
+        fields.insert(QStringLiteral("title"), title);
+        if (!m_tags->saveTrackTags(path, fields)) {
+            ++failed;
+            continue;
+        }
+        ++updated;
+        if (syncBeets && m_beets->available()) {
+            m_beets->modifyByPath(path, fields);
+        }
+    }
+
+    refreshTracks();
+
+    const int unmatched = m_metadataSearch->titleFixUnmatched().size();
+    QString message = QStringLiteral("Fixed %1 title%2")
+                          .arg(updated)
+                          .arg(updated == 1 ? QString() : QStringLiteral("s"));
+    if (unmatched > 0) {
+        message += QStringLiteral("; %1 unmatched — fix manually").arg(unmatched);
+    }
+    if (failed > 0) {
+        message += QStringLiteral("; %1 failed").arg(failed);
+    }
+    notify(message, failed > 0 ? QStringLiteral("error") : QStringLiteral("success"));
+
+    if (updated > 0) {
+        closeTitleFix();
+    }
+    return updated > 0;
+}
+
 void AppController::syncFetchedTagsToBeets(const QVariantMap &fields, const QString &libraryArtist,
                                            const QString &libraryAlbum) {
     if (m_tagEditorMode == QStringLiteral("track") && !m_tagEditorPath.isEmpty()) {
@@ -1282,6 +1531,108 @@ void AppController::fetchDiscogsForSelectedArtist() {
     m_discogs->fetchArtist(m_selectedArtist, folder);
 }
 
+void AppController::fetchDiscogsForAllArtistAlbums() {
+    if (m_selectedArtist.isEmpty() || m_bulkDiscogsAlbumsActive) {
+        return;
+    }
+    if (m_discogs->busy()) {
+        notify(QStringLiteral("Discogs is busy"), QStringLiteral("info"));
+        return;
+    }
+    if (!m_discogs->hasToken()) {
+        notify(QStringLiteral("Add a Discogs token in Settings first"),
+               QStringLiteral("error"));
+        return;
+    }
+
+    const QStringList albums = m_library->albumsForArtist(m_selectedArtist);
+    if (albums.isEmpty()) {
+        notify(QStringLiteral("No albums found for this artist"), QStringLiteral("info"));
+        return;
+    }
+
+    m_bulkDiscogsAlbumsActive = true;
+    m_bulkDiscogsArtist = m_selectedArtist;
+    m_bulkDiscogsAlbums = albums;
+    m_bulkDiscogsCurrentAlbum.clear();
+    m_bulkDiscogsIndex = 0;
+    m_bulkDiscogsSucceeded = 0;
+    m_bulkDiscogsFailed = 0;
+    emit albumDiscogsChanged();
+    notify(QStringLiteral("Fetching Discogs info for %1 albums by %2")
+               .arg(albums.size())
+               .arg(m_bulkDiscogsArtist),
+           QStringLiteral("info"));
+    fetchNextBulkDiscogsAlbum();
+}
+
+void AppController::fetchNextBulkDiscogsAlbum() {
+    if (!m_bulkDiscogsAlbumsActive) {
+        return;
+    }
+
+    while (m_bulkDiscogsIndex < m_bulkDiscogsAlbums.size()) {
+        m_bulkDiscogsCurrentAlbum = m_bulkDiscogsAlbums.at(m_bulkDiscogsIndex);
+        const QVariantList tracks =
+            m_library->tracksForAlbum(m_bulkDiscogsArtist, m_bulkDiscogsCurrentAlbum);
+        if (!tracks.isEmpty()) {
+            notify(QStringLiteral("Discogs %1/%2: searching %3")
+                       .arg(m_bulkDiscogsIndex + 1)
+                       .arg(m_bulkDiscogsAlbums.size())
+                       .arg(m_bulkDiscogsCurrentAlbum),
+                   QStringLiteral("info"));
+            m_discogs->searchReleases(m_bulkDiscogsArtist, m_bulkDiscogsCurrentAlbum);
+            return;
+        }
+        ++m_bulkDiscogsFailed;
+        ++m_bulkDiscogsIndex;
+    }
+
+    const int total = m_bulkDiscogsAlbums.size();
+    const int succeeded = m_bulkDiscogsSucceeded;
+    const int failed = m_bulkDiscogsFailed;
+    m_bulkDiscogsAlbumsActive = false;
+    m_bulkDiscogsArtist.clear();
+    m_bulkDiscogsAlbums.clear();
+    m_bulkDiscogsCurrentAlbum.clear();
+    emit albumDiscogsChanged();
+
+    notify(failed == 0
+               ? QStringLiteral("Fetched Discogs info for all %1 albums").arg(total)
+               : QStringLiteral("Discogs album fetch complete: %1 saved, %2 unmatched/failed")
+                     .arg(succeeded)
+                     .arg(failed),
+           failed == 0 ? QStringLiteral("success") : QStringLiteral("info"));
+}
+
+void AppController::handleBulkDiscogsSearch(const QVariantList &results) {
+    if (!m_bulkDiscogsAlbumsActive || m_bulkDiscogsCurrentAlbum.isEmpty()) {
+        return;
+    }
+
+    if (results.isEmpty()) {
+        ++m_bulkDiscogsFailed;
+        ++m_bulkDiscogsIndex;
+        QTimer::singleShot(2000, this, &AppController::fetchNextBulkDiscogsAlbum);
+        return;
+    }
+
+    const quint64 releaseId =
+        results.first().toMap().value(QStringLiteral("id")).toULongLong();
+    const QVariantList tracks =
+        m_library->tracksForAlbum(m_bulkDiscogsArtist, m_bulkDiscogsCurrentAlbum);
+    if (releaseId == 0 || tracks.isEmpty()) {
+        ++m_bulkDiscogsFailed;
+        ++m_bulkDiscogsIndex;
+        QTimer::singleShot(2000, this, &AppController::fetchNextBulkDiscogsAlbum);
+        return;
+    }
+
+    const QString folder =
+        QFileInfo(tracks.first().toMap().value(QStringLiteral("path")).toString()).absolutePath();
+    m_discogs->fetchRelease(m_bulkDiscogsArtist, m_bulkDiscogsCurrentAlbum, folder, releaseId);
+}
+
 void AppController::openDiscogsForSelectedAlbum() {
     if (m_selectedArtist.isEmpty() || m_selectedAlbum.isEmpty()) {
         return;
@@ -1290,7 +1641,31 @@ void AppController::openDiscogsForSelectedAlbum() {
     m_albumDiscogsSelectedIndex = -1;
     m_albumDiscogsOpen = true;
     emit albumDiscogsChanged();
-    m_discogs->searchReleases(m_selectedArtist, m_selectedAlbum);
+    m_discogs->searchReleases(m_selectedArtist, m_selectedAlbum,
+                              QStringList{QStringLiteral("CD")}, {});
+}
+
+void AppController::searchAlbumDiscogs(const QString &artist, const QString &album,
+                                       const QVariantList &formats, const QString &edition) {
+    if (!m_albumDiscogsOpen) {
+        return;
+    }
+    if (artist.trimmed().isEmpty() && album.trimmed().isEmpty()
+        && edition.trimmed().isEmpty()) {
+        notify(QStringLiteral("Enter an artist and/or album to search"), QStringLiteral("info"));
+        return;
+    }
+    QStringList formatFilters;
+    for (const QVariant &value : formats) {
+        const QString format = value.toString().trimmed();
+        if (!format.isEmpty()) {
+            formatFilters << format;
+        }
+    }
+    m_albumDiscogsCandidates.clear();
+    m_albumDiscogsSelectedIndex = -1;
+    emit albumDiscogsChanged();
+    m_discogs->searchReleases(artist, album, formatFilters, edition);
 }
 
 void AppController::closeDiscogsForSelectedAlbum() {
@@ -1352,11 +1727,45 @@ void AppController::onDiscogsReleaseFetched(const QString &artist, const QString
         emit selectionChanged();
     }
     closeDiscogsForSelectedAlbum();
+
+    if (m_bulkDiscogsAlbumsActive && artist == m_bulkDiscogsArtist
+        && album == m_bulkDiscogsCurrentAlbum) {
+        if (success) {
+            ++m_bulkDiscogsSucceeded;
+        } else {
+            ++m_bulkDiscogsFailed;
+        }
+        ++m_bulkDiscogsIndex;
+        QTimer::singleShot(2000, this, &AppController::fetchNextBulkDiscogsAlbum);
+    }
 }
 
 void AppController::applyUiFont() {
     QFont font = QGuiApplication::font();
-    font.setFamily(m_config->uiFontFamily());
+    const QString preferred = m_config->uiFontFamily();
+    QString family = preferred;
+    if (preferred.isEmpty() || !QFontDatabase::hasFamily(preferred)) {
+        const QStringList fallbacks = {
+            QStringLiteral("CaskaydiaMono Nerd Font"),
+            QStringLiteral("JetBrainsMono Nerd Font"),
+            QStringLiteral("JetBrains Mono"),
+            QStringLiteral("Sans Serif"),
+        };
+        family.clear();
+        for (const QString &candidate : fallbacks) {
+            if (QFontDatabase::hasFamily(candidate)) {
+                family = candidate;
+                break;
+            }
+        }
+        if (family.isEmpty()) {
+            family = QFont().defaultFamily();
+        }
+    }
+    font.setFamily(family);
+    if (m_config->uiFontSize() > 0) {
+        font.setPointSize(m_config->uiFontSize());
+    }
     QGuiApplication::setFont(font);
 }
 
@@ -1365,12 +1774,15 @@ void AppController::saveSettings(const QString &libraryPaths, const QString &imp
                                    bool beetsNomove, const QString &discogsToken,
                                    const QString &uiFontFamily, int uiFontSize, bool scanOnLaunch,
                                    bool libraryWatchEnabled, bool wasdNavigation,
-                                   bool tooltipsEnabled, bool lyricsNetease, bool lyricsPlain) {
+                                   bool tooltipsEnabled, bool lyricsNetease, bool lyricsPlain,
+                                   int opusBitrateKbps, const QString &importMode) {
     m_config->setLibraryPaths(libraryPaths);
     m_config->setImportInbox(importInbox);
     m_config->setLyricsDir(lyricsDir);
     m_config->setBeetsBinary(beetsBinary);
     m_config->setBeetsNomove(beetsNomove);
+    m_config->setImportMode(importMode);
+    m_config->setOpusBitrateKbps(opusBitrateKbps);
     if (!uiFontFamily.trimmed().isEmpty()) {
         m_config->setUiFontFamily(uiFontFamily.trimmed());
     }
@@ -1413,7 +1825,7 @@ void AppController::fetchLyricsForPlayingTrack() {
     track.insert(QStringLiteral("artist"), m_playback->artist());
     track.insert(QStringLiteral("title"), m_playback->title());
     track.insert(QStringLiteral("album"), m_playback->album());
-    m_lyrics->fetchForTrack(track);
+    m_lyrics->retryForTrack(track);
 }
 
 void AppController::fetchLyricsForTrackIndex(int index) {
@@ -1421,7 +1833,7 @@ void AppController::fetchLyricsForTrackIndex(int index) {
     if (track.isEmpty() || track.value(QStringLiteral("path")).toString().isEmpty()) {
         return;
     }
-    m_lyrics->fetchForTrack(track);
+    m_lyrics->retryForTrack(track);
 }
 
 void AppController::fetchLyricsForAlbum(const QString &artist, const QString &album) {
@@ -1443,5 +1855,24 @@ void AppController::fetchLyricsForArtist(const QString &artist) {
     if (tracks.isEmpty()) {
         return;
     }
+    m_lyrics->fetchForTracks(tracks);
+}
+
+void AppController::fetchLyricsForLibrary() {
+    if (m_lyrics->busy()) {
+        notify(QStringLiteral("Lyrics fetch is already running"), QStringLiteral("info"));
+        return;
+    }
+    if (m_enrichment && m_enrichment->active()) {
+        notify(QStringLiteral("Library enrichment is already running"), QStringLiteral("info"));
+        return;
+    }
+    const QVariantList tracks = m_library->allTracks();
+    if (tracks.isEmpty()) {
+        notify(QStringLiteral("Library is empty — nothing to fetch"), QStringLiteral("info"));
+        return;
+    }
+    notify(QStringLiteral("Fetching lyrics for %1 tracks").arg(tracks.size()),
+           QStringLiteral("info"));
     m_lyrics->fetchForTracks(tracks);
 }

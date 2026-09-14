@@ -127,6 +127,10 @@ ApplicationWindow {
         sequence: "Up"
         context: Qt.ApplicationShortcut
         onActivated: {
+            if (App.librarySearchOpen) {
+                App.librarySearchMoveUp()
+                return
+            }
             if (root.textInputFocused())
                 return
             if (App.mainView === "library")
@@ -140,6 +144,10 @@ ApplicationWindow {
         sequence: "Down"
         context: Qt.ApplicationShortcut
         onActivated: {
+            if (App.librarySearchOpen) {
+                App.librarySearchMoveDown()
+                return
+            }
             if (root.textInputFocused())
                 return
             if (App.mainView === "library")
@@ -271,6 +279,10 @@ ApplicationWindow {
         sequence: "Return"
         context: Qt.ApplicationShortcut
         onActivated: {
+            if (App.librarySearchOpen) {
+                App.acceptLibrarySearch()
+                return
+            }
             if (!root.textInputFocused())
                 root.playSelected()
         }
@@ -280,6 +292,10 @@ ApplicationWindow {
         sequence: "Enter"
         context: Qt.ApplicationShortcut
         onActivated: {
+            if (App.librarySearchOpen) {
+                App.acceptLibrarySearch()
+                return
+            }
             if (!root.textInputFocused())
                 root.playSelected()
         }
@@ -350,10 +366,13 @@ ApplicationWindow {
         id: mainSplit
         anchors.fill: parent
         orientation: Qt.Vertical
+        onResizingChanged: {
+            if (!resizing)
+                root.syncLayoutWidths()
+        }
 
         handle: SplitHandle {
             orientation: Qt.Vertical
-            onReleased: root.syncLayoutWidths()
         }
 
         Item {
@@ -364,10 +383,13 @@ ApplicationWindow {
                 id: contentSplit
                 anchors.fill: parent
                 orientation: Qt.Horizontal
+                onResizingChanged: {
+                    if (!resizing)
+                        root.syncLayoutWidths()
+                }
 
                 handle: SplitHandle {
                     orientation: Qt.Horizontal
-                    onReleased: root.syncLayoutWidths()
                 }
 
              Item {
@@ -416,13 +438,6 @@ ApplicationWindow {
                              }
 
                              NavButton {
-                                 id: importTab
-                                 text: "Import"
-                                 navHighlighted: App.mainView === "import"
-                                 onClicked: App.showImport()
-                             }
-
-                             NavButton {
                                  id: settingsTab
                                  text: "Settings"
                                  navHighlighted: App.mainView === "settings"
@@ -456,15 +471,11 @@ ApplicationWindow {
                              x: navRow.x + (App.mainView === "library"
                                              ? browseTab.x
                                              : App.mainView === "playlists"
-                                               ? playlistsTab.x
-                                               : App.mainView === "import"
-                                                 ? importTab.x : settingsTab.x)
+                                               ? playlistsTab.x : settingsTab.x)
                              width: App.mainView === "library"
                                     ? browseTab.width
                                     : App.mainView === "playlists"
-                                      ? playlistsTab.width
-                                      : App.mainView === "import"
-                                        ? importTab.width : settingsTab.width
+                                      ? playlistsTab.width : settingsTab.width
                              height: 2
                              y: topBar.height - height
                              color: Theme.accent
@@ -501,19 +512,6 @@ ApplicationWindow {
                      }
 
                      Loader {
-                         id: importLoader
-                         Layout.fillWidth: true
-                         Layout.fillHeight: true
-                         active: true
-                         visible: App.mainView === "import"
-                         source: "qrc:/views/ImportView.qml"
-                         onStatusChanged: {
-                             if (status === Loader.Error)
-                                 console.error("ImportView failed to load")
-                         }
-                     }
-
-                     Loader {
                          id: settingsLoader
                          Layout.fillWidth: true
                          Layout.fillHeight: true
@@ -525,6 +523,7 @@ ApplicationWindow {
                                  console.error("SettingsView failed to load")
                          }
                      }
+
                  }
              }
 
@@ -587,6 +586,16 @@ ApplicationWindow {
         source: "qrc:/components/DiscogsAlbumDialog.qml"
     }
 
+    Loader {
+        active: true
+        source: "qrc:/components/TitleFixDialog.qml"
+    }
+
+    Loader {
+        active: true
+        source: "qrc:/components/EnrichmentResolveDialog.qml"
+    }
+
     Snackbar {
         z: 10
         anchors.horizontalCenter: parent.horizontalCenter
@@ -603,6 +612,7 @@ ApplicationWindow {
         anchors.centerIn: parent
         title: "Keyboard shortcuts"
         modal: true
+        Overlay.modal: ThemedModalScrim {}
         standardButtons: Dialog.Close
 
         contentItem: GridLayout {
@@ -614,6 +624,10 @@ ApplicationWindow {
             Label { text: "Open library search"; color: Theme.foreground }
             Label { text: "Tab (in search)"; font.bold: true; color: Theme.foreground }
             Label { text: "Cycle search scope"; color: Theme.foreground }
+            Label { text: "↑ / ↓ (in search)"; font.bold: true; color: Theme.foreground }
+            Label { text: "Move through matches"; color: Theme.foreground }
+            Label { text: "Enter (in search)"; font.bold: true; color: Theme.foreground }
+            Label { text: "Close search and go to selection"; color: Theme.foreground }
             Label { text: "Space"; font.bold: true; color: Theme.foreground }
             Label { text: "Play / pause"; color: Theme.foreground }
             Label { text: "↑ / ↓"; font.bold: true; color: Theme.foreground }

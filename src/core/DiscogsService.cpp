@@ -13,12 +13,13 @@
 #include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QUrl>
+#include <QUrlQuery>
 
 #include <algorithm>
 
 namespace {
 
-constexpr char kUserAgent[] = "qt-music/0.1 +local";
+constexpr char kUserAgent[] = "qt-music/0.1.0 (+https://github.com/jy0un9/qt-music)";
 constexpr char kApiBase[] = "https://api.discogs.com";
 
 QString readTokenFromLegacySecrets(const QString &path) {
@@ -95,12 +96,86 @@ QVariantList parseArtistSearchBody(const QByteArray &body) {
     return results;
 }
 
-QVariantList parseReleaseSearchBody(const QByteArray &body) {
+bool formatMatchesFilter(const QStringList &formats, const QString &filter) {
+    const QString needle = filter.trimmed().toLower();
+    if (needle.isEmpty()) {
+        return true;
+    }
+    for (const QString &raw : formats) {
+        const QString format = raw.trimmed().toLower();
+        if (format.isEmpty()) {
+            continue;
+        }
+        if (needle == QLatin1String("cd")) {
+            if (format == QLatin1String("cd") || format.contains(QLatin1String("cd"))) {
+                return true;
+            }
+        } else if (needle == QLatin1String("vinyl")) {
+            if (format.contains(QLatin1String("vinyl")) || format == QLatin1String("lp")
+                || format.contains(QLatin1String("12\"")) || format.contains(QLatin1String("7\""))) {
+                return true;
+            }
+        } else if (needle == QLatin1String("cassette") || needle == QLatin1String("tape")) {
+            if (format.contains(QLatin1String("cassette")) || format.contains(QLatin1String("tape"))) {
+                return true;
+            }
+        } else if (needle == QLatin1String("digital")) {
+            if (format.contains(QLatin1String("file")) || format.contains(QLatin1String("flac"))
+                || format.contains(QLatin1String("mp3")) || format.contains(QLatin1String("aac"))
+                || format.contains(QLatin1String("wav")) || format.contains(QLatin1String("alac"))
+                || format.contains(QLatin1String("digital"))) {
+                return true;
+            }
+        } else if (format.contains(needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool releaseMatchesFormats(const QStringList &formats, const QStringList &filters) {
+    if (filters.isEmpty()) {
+        return true;
+    }
+    for (const QString &filter : filters) {
+        if (formatMatchesFilter(formats, filter)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QString discogsApiFormat(const QString &filter) {
+    const QString needle = filter.trimmed().toLower();
+    if (needle == QLatin1String("cd")) {
+        return QStringLiteral("CD");
+    }
+    if (needle == QLatin1String("vinyl")) {
+        return QStringLiteral("Vinyl");
+    }
+    if (needle == QLatin1String("cassette") || needle == QLatin1String("tape")) {
+        return QStringLiteral("Cassette");
+    }
+    if (needle == QLatin1String("digital")) {
+        return QStringLiteral("File");
+    }
+    return filter.trimmed();
+}
+
+QVariantList parseReleaseSearchBody(const QByteArray &body, const QStringList &formatFilters) {
     QVariantList results;
     const QJsonArray items =
         QJsonDocument::fromJson(body).object().value(QStringLiteral("results")).toArray();
     for (const QJsonValue &value : items) {
         const QJsonObject item = value.toObject();
+        QStringList formats;
+        for (const QJsonValue &format : item.value(QStringLiteral("format")).toArray()) {
+            formats << format.toString();
+        }
+        if (!releaseMatchesFormats(formats, formatFilters)) {
+            continue;
+        }
+
         QVariantMap row;
         row.insert(QStringLiteral("id"), item.value(QStringLiteral("id")).toVariant());
         row.insert(QStringLiteral("title"), item.value(QStringLiteral("title")).toString());
@@ -110,19 +185,33 @@ QVariantList parseReleaseSearchBody(const QByteArray &body) {
             labels << label.toString();
         }
         row.insert(QStringLiteral("label"), labels.join(QStringLiteral(", ")));
-        QStringList formats;
-        for (const QJsonValue &format : item.value(QStringLiteral("format")).toArray()) {
-            formats << format.toString();
-        }
-        const bool isCd = std::any_of(formats.cbegin(), formats.cend(), [](const QString &format) {
-            return format.compare(QStringLiteral("CD"), Qt::CaseInsensitive) == 0;
-        });
-        if (!isCd) {
-            continue;
-        }
+        const bool isCd = formatMatchesFilter(formats, QStringLiteral("CD"));
+        const bool isDigital = formatMatchesFilter(formats, QStringLiteral("Digital"));
         row.insert(QStringLiteral("format"), formats.join(QStringLiteral(", ")));
         row.insert(QStringLiteral("country"), item.value(QStringLiteral("country")).toString());
+        const int mediaCount = item.value(QStringLiteral("format_quantity")).toInt();
+        if (mediaCount > 0) {
+            row.insert(QStringLiteral("mediaCount"), mediaCount);
+        }
+        row.insert(QStringLiteral("preferCd"), isCd);
+        row.insert(QStringLiteral("preferDigital"), isDigital);
         results << row;
+    }
+
+    std::stable_sort(results.begin(), results.end(), [](const QVariant &left, const QVariant &right) {
+        const QVariantMap l = left.toMap();
+        const QVariantMap r = right.toMap();
+        const int lScore = (l.value(QStringLiteral("preferCd")).toBool() ? 2 : 0)
+                           + (l.value(QStringLiteral("preferDigital")).toBool() ? 1 : 0);
+        const int rScore = (r.value(QStringLiteral("preferCd")).toBool() ? 2 : 0)
+                           + (r.value(QStringLiteral("preferDigital")).toBool() ? 1 : 0);
+        return lScore > rScore;
+    });
+    for (QVariant &value : results) {
+        QVariantMap row = value.toMap();
+        row.remove(QStringLiteral("preferCd"));
+        row.remove(QStringLiteral("preferDigital"));
+        value = row;
     }
     return results;
 }
@@ -222,22 +311,52 @@ void DiscogsService::searchArtists(const QString &query) {
     startGet(url, true);
 }
 
-void DiscogsService::searchReleases(const QString &artist, const QString &album) {
+void DiscogsService::searchReleases(const QString &artist, const QString &album,
+                                    const QStringList &formats, const QString &edition) {
     const QString token = loadToken();
-    if (token.isEmpty() || artist.trimmed().isEmpty() || album.trimmed().isEmpty()) {
+    const QString trimmedArtist = artist.trimmed();
+    const QString trimmedAlbum = album.trimmed();
+    const QString trimmedEdition = edition.trimmed();
+    if (token.isEmpty() || (trimmedArtist.isEmpty() && trimmedAlbum.isEmpty()
+                            && trimmedEdition.isEmpty())) {
         emit releasesSearchFinished({});
         return;
+    }
+
+    m_searchFormats.clear();
+    for (const QString &format : formats) {
+        const QString trimmed = format.trimmed();
+        if (!trimmed.isEmpty()) {
+            m_searchFormats << trimmed;
+        }
     }
 
     m_op = Op::SearchReleases;
     setBusy(true);
     setStatus(QStringLiteral("Searching Discogs releases…"));
-    const QUrl url(QString::fromUtf8(kApiBase) + QStringLiteral("/database/search?q=")
-                   + QUrl::toPercentEncoding(artist.trimmed() + QStringLiteral(" ")
-                                             + album.trimmed())
-                   + QStringLiteral("&type=release&per_page=10"));
+    QString query = trimmedArtist;
+    if (!trimmedAlbum.isEmpty()) {
+        query = query.isEmpty() ? trimmedAlbum : query + QLatin1Char(' ') + trimmedAlbum;
+    }
+    if (!trimmedEdition.isEmpty()) {
+        query = query.isEmpty() ? trimmedEdition : query + QLatin1Char(' ') + trimmedEdition;
+    }
+
+    QUrl url(QString::fromUtf8(kApiBase) + QStringLiteral("/database/search"));
+    QUrlQuery urlQuery;
+    urlQuery.addQueryItem(QStringLiteral("q"), query);
+    urlQuery.addQueryItem(QStringLiteral("type"), QStringLiteral("release"));
+    urlQuery.addQueryItem(QStringLiteral("per_page"), QStringLiteral("50"));
+    if (m_searchFormats.size() == 1) {
+        const QString apiFormat = discogsApiFormat(m_searchFormats.first());
+        if (!apiFormat.isEmpty()) {
+            urlQuery.addQueryItem(QStringLiteral("format"), apiFormat);
+        }
+    }
+    url.setQuery(urlQuery);
     startGet(url, true);
 }
+
 
 void DiscogsService::fetchArtist(const QString &artistName, const QString &artistFolder,
                                  quint64 discogsId) {
@@ -329,7 +448,8 @@ void DiscogsService::onReplyFinished() {
         break;
     }
     case Op::SearchReleases: {
-        const QVariantList results = netOk ? parseReleaseSearchBody(body) : QVariantList{};
+        const QVariantList results =
+            netOk ? parseReleaseSearchBody(body, m_searchFormats) : QVariantList{};
         finishOp();
         setStatus(results.isEmpty() ? QStringLiteral("No Discogs releases found")
                                     : QStringLiteral("Found %1 release(s)").arg(results.size()));
@@ -521,4 +641,40 @@ void DiscogsService::setStatus(const QString &status) {
     }
     m_status = status;
     emit statusChanged();
+}
+
+QVariantList rankDiscogsAlbumCandidates(const QVariantList &results, int localTrackCount)
+{
+    QVariantList ranked = results;
+    for (QVariant &value : ranked) {
+        QVariantMap row = value.toMap();
+        row.insert(QStringLiteral("localTrackCount"), localTrackCount);
+        value = row;
+    }
+    std::stable_sort(ranked.begin(), ranked.end(),
+                     [localTrackCount](const QVariant &left, const QVariant &right) {
+                         const QVariantMap l = left.toMap();
+                         const QVariantMap r = right.toMap();
+                         const QString lf =
+                             l.value(QStringLiteral("format")).toString().toLower();
+                         const QString rf =
+                             r.value(QStringLiteral("format")).toString().toLower();
+                         const bool lCd = lf.contains(QLatin1String("cd"));
+                         const bool rCd = rf.contains(QLatin1String("cd"));
+                         if (lCd != rCd) {
+                             return lCd;
+                         }
+                         const int lMedia = l.value(QStringLiteral("mediaCount")).toInt();
+                         const int rMedia = r.value(QStringLiteral("mediaCount")).toInt();
+                         if (localTrackCount > 0 && lMedia > 0 && rMedia > 0) {
+                             const int expectedDiscs = qMax(1, (localTrackCount + 11) / 12);
+                             const int lDelta = qAbs(lMedia - expectedDiscs);
+                             const int rDelta = qAbs(rMedia - expectedDiscs);
+                             if (lDelta != rDelta) {
+                                 return lDelta < rDelta;
+                             }
+                         }
+                         return false;
+                     });
+    return ranked;
 }

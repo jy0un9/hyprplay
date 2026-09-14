@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls.Material
 import QtQuick.Layouts
 import components 1.0
 
@@ -34,8 +33,7 @@ Pane {
     }
 
     function focusNewPlaylistField() {
-        newPlaylistField.forceActiveFocus()
-        newPlaylistField.selectAll()
+        createDialog.open()
     }
 
     function persistLayout() {
@@ -60,6 +58,40 @@ Pane {
 
     property string selectedPlaylist: App.playlists.selectedPlaylist
 
+    AdaptiveMenu {
+        id: playlistContextMenu
+        property string playlistName: ""
+
+        ThemedMenuItem {
+            text: "Rename playlist"
+            onTriggered: {
+                App.setPlaylistFocusColumn("playlists")
+                App.selectPlaylist(playlistContextMenu.playlistName)
+                renameDialog.open()
+            }
+        }
+        MenuSeparator {}
+        ThemedMenuItem {
+            text: "Delete playlist"
+            onTriggered: {
+                App.setPlaylistFocusColumn("playlists")
+                App.selectPlaylist(playlistContextMenu.playlistName)
+                deleteDialog.open()
+            }
+        }
+    }
+
+    AdaptiveMenu {
+        id: trackContextMenu
+        property int trackIndex: -1
+
+        ThemedMenuItem {
+            text: "Remove from playlist"
+            enabled: trackContextMenu.trackIndex >= 0
+            onTriggered: App.removePlaylistTrack(trackContextMenu.trackIndex)
+        }
+    }
+
     Connections {
         target: App
         function onPlaylistFocusChanged() {
@@ -74,10 +106,13 @@ Pane {
         id: playlistSplit
         anchors.fill: parent
         orientation: Qt.Horizontal
+        onResizingChanged: {
+            if (!resizing)
+                playlistsView.persistLayout()
+        }
 
         handle: SplitHandle {
             orientation: Qt.Horizontal
-            onReleased: playlistsView.persistLayout()
         }
 
         Item {
@@ -103,33 +138,6 @@ Pane {
                     color: Theme.foreground
                     Layout.leftMargin: Theme.spaceMd
                     Layout.topMargin: Theme.spaceMd
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: Theme.spaceSm
-                    Layout.rightMargin: Theme.spaceSm
-                    spacing: Theme.spaceXs + 2
-
-                    TextField {
-                        id: newPlaylistField
-                        Layout.fillWidth: true
-                        placeholderText: "New playlist…"
-                        onAccepted: createPlaylistButton.clicked()
-                    }
-
-                    PrimaryButton {
-                        id: createPlaylistButton
-                        text: "Create"
-                        ToolTip.visible: App.config.tooltipsEnabled && hovered
-                        ToolTip.text: "Create playlist"
-                        onClicked: {
-                            if (newPlaylistField.text.trim().length === 0)
-                                return
-                            App.createPlaylist(newPlaylistField.text.trim())
-                            newPlaylistField.text = ""
-                        }
-                    }
                 }
 
                 Label {
@@ -177,6 +185,23 @@ Pane {
                             App.selectPlaylist(model.name)
                         }
 
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: {
+                                playlistContextMenu.playlistName = model.name
+                                playlistContextMenu.popup()
+                            }
+                        }
+
+                        TapHandler {
+                            acceptedButtons: Qt.LeftButton
+                            onDoubleTapped: {
+                                App.setPlaylistFocusColumn("playlists")
+                                App.selectPlaylist(model.name)
+                                App.playPlaylist()
+                            }
+                        }
+
                         contentItem: RowLayout {
                             spacing: Theme.spaceSm
 
@@ -192,11 +217,18 @@ Pane {
                                 spacing: 1
 
                                 Label {
+                                    id: playlistNameLabel
                                     text: playlistDelegate.text
                                     font: playlistDelegate.font
                                     color: Theme.foreground
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
+                                    HoverHandler { id: playlistNameHover }
+                                    ElisionPopup {
+                                        visible: playlistNameHover.hovered && playlistNameLabel.truncated
+                                        text: playlistDelegate.text
+                                    }
+
                                 }
 
                                 Label {
@@ -210,12 +242,11 @@ Pane {
                     }
                 }
 
-                Button {
-                    text: "Delete"
+                PrimaryButton {
+                    text: "Create playlist"
                     Layout.fillWidth: true
                     Layout.margins: Theme.spaceSm
-                    enabled: playlistsView.selectedPlaylist.length > 0
-                    onClicked: deleteDialog.open()
+                    onClicked: createDialog.open()
                 }
             }
         }
@@ -236,12 +267,19 @@ Pane {
                     visible: playlistsView.selectedPlaylist.length > 0
 
                     Label {
+                        id: selectedPlaylistLabel
                         text: playlistsView.selectedPlaylist
                         font.pixelSize: Theme.fontHeading
                         font.bold: true
                         color: Theme.foreground
                         Layout.fillWidth: true
                         elide: Text.ElideRight
+                        HoverHandler { id: selectedPlaylistHover }
+                        ElisionPopup {
+                            visible: selectedPlaylistHover.hovered && selectedPlaylistLabel.truncated
+                            text: selectedPlaylistLabel.text
+                        }
+
                     }
 
                     Label {
@@ -249,26 +287,6 @@ Pane {
                         font.pixelSize: Theme.fontCaption
                         opacity: 0.6
                         color: Theme.foreground
-                    }
-
-                    PrimaryButton {
-                        text: "Play"
-                        onClicked: App.playPlaylist()
-                    }
-
-                    Button {
-                        text: "Shuffle"
-                        Material.roundedScale: Material.SmallScale
-                        onClicked: {
-                            App.playback.setShuffle(true)
-                            App.playPlaylist()
-                        }
-                    }
-
-                    Button {
-                        text: "Rename"
-                        Material.roundedScale: Material.SmallScale
-                        onClicked: renameDialog.open()
                     }
                 }
 
@@ -305,7 +323,6 @@ Pane {
                     delegate: ItemDelegate {
                         id: playlistTrackDelegate
                         width: trackList.width
-                        enabled: model.resolved !== false
                         highlighted: index === App.selectedPlaylistTrackIndex
                         Accessible.name: (model.resolved === false ? "Missing track: " : "")
                                          + model.title
@@ -385,6 +402,7 @@ Pane {
                                 }
                             }
                             Label {
+                                id: playlistTrackTitleLabel
                                 text: model.resolved === false ? "[missing] " + model.title : model.title
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
@@ -392,6 +410,12 @@ Pane {
                                        ? Theme.accent : Theme.foreground
                                 opacity: model.resolved === false ? 0.45
                                          : (playlistTrackDelegate.highlighted ? 1 : 0.92)
+                                HoverHandler { id: playlistTrackTitleHover }
+                                ElisionPopup {
+                                    visible: playlistTrackTitleHover.hovered && playlistTrackTitleLabel.truncated
+                                    text: playlistTrackTitleLabel.text
+                                }
+
                             }
                             Label {
                                 text: model.resolved === false ? "" : formatDuration(model.durationMs)
@@ -475,10 +499,23 @@ Pane {
                             }
                         }
 
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: {
+                                App.setPlaylistFocusColumn("tracks")
+                                App.setSelectedPlaylistTrackIndex(index)
+                                trackContextMenu.trackIndex = index
+                                trackContextMenu.popup()
+                            }
+                        }
+
                         onClicked: {
                             if (trackList.draggingIndex >= 0)
                                 return
-                            App.playPlaylistTrackIndex(index)
+                            App.setPlaylistFocusColumn("tracks")
+                            App.setSelectedPlaylistTrackIndex(index)
+                            if (model.resolved !== false)
+                                App.playPlaylistTrackIndex(index)
                         }
                     }
                 }
@@ -505,11 +542,42 @@ Pane {
     }
 
     Dialog {
+        id: createDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        title: "Create playlist"
+        modal: true
+        Overlay.modal: ThemedModalScrim {}
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        contentItem: TextField {
+            id: createField
+            placeholderText: "Playlist name"
+            selectByMouse: true
+            onAccepted: {
+                if (text.trim().length > 0)
+                    createDialog.accept()
+            }
+        }
+
+        onOpened: {
+            createField.text = ""
+            createField.forceActiveFocus()
+        }
+        onAccepted: {
+            const name = createField.text.trim()
+            if (name.length > 0)
+                App.createPlaylist(name)
+        }
+    }
+
+    Dialog {
         id: deleteDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
         title: "Delete playlist?"
         modal: true
+        Overlay.modal: ThemedModalScrim {}
         standardButtons: Dialog.Ok | Dialog.Cancel
         contentItem: Label {
             text: "Delete \"" + playlistsView.selectedPlaylist + "\" permanently?"
@@ -524,6 +592,7 @@ Pane {
         anchors.centerIn: parent
         title: "Rename playlist"
         modal: true
+        Overlay.modal: ThemedModalScrim {}
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         contentItem: TextField {

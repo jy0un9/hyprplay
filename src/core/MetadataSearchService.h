@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QHash>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -18,6 +19,9 @@ class MetadataSearchService : public QObject {
     Q_PROPERTY(int selectedIndex READ selectedIndex WRITE setSelectedIndex NOTIFY selectedIndexChanged)
     Q_PROPERTY(QVariantMap currentFields READ currentFields NOTIFY fieldChoicesChanged)
     Q_PROPERTY(QVariantList fieldChoices READ fieldChoices NOTIFY fieldChoicesChanged)
+    Q_PROPERTY(QVariantList titleFixProposals READ titleFixProposals NOTIFY titleFixProposalsChanged)
+    Q_PROPERTY(QVariantList titleFixUnmatched READ titleFixUnmatched NOTIFY titleFixProposalsChanged)
+    Q_PROPERTY(int localTrackCount READ localTrackCount NOTIFY localTrackCountChanged)
 
 public:
     explicit MetadataSearchService(ConfigService *config, DiscogsService *discogs,
@@ -30,15 +34,25 @@ public:
     int selectedIndex() const { return m_selectedIndex; }
     QVariantMap currentFields() const { return m_currentFields; }
     QVariantList fieldChoices() const;
+    QVariantList titleFixProposals() const { return m_titleFixProposals; }
+    QVariantList titleFixUnmatched() const { return m_titleFixUnmatched; }
+    int localTrackCount() const { return m_localTrackCount; }
 
     Q_INVOKABLE void setSelectedIndex(int index);
     Q_INVOKABLE void setFieldChecked(const QString &key, bool checked);
     Q_INVOKABLE QVariantMap checkedFields() const;
+    Q_INVOKABLE void setLocalTracksForTitleFix(const QVariantList &tracks);
+    Q_INVOKABLE void setLocalTrackCount(int count);
+    Q_INVOKABLE void setTitleFixChecked(int index, bool checked);
+    Q_INVOKABLE QVariantList checkedTitleFixProposals() const;
     Q_INVOKABLE void clear();
     Q_INVOKABLE void setStatus(const QString &status);
+
     Q_INVOKABLE void setCurrentFields(const QVariantMap &fields);
     Q_INVOKABLE void searchRelease(const QString &artist, const QString &album,
-                                   const QString &albumArtist = {});
+                                   const QString &albumArtist = {},
+                                   const QVariantList &formats = {},
+                                   const QString &edition = {});
 
 signals:
     void searchingChanged();
@@ -46,6 +60,8 @@ signals:
     void candidatesChanged();
     void selectedIndexChanged();
     void fieldChoicesChanged();
+    void titleFixProposalsChanged();
+    void localTrackCountChanged();
     void searchFinished(bool success);
 
 private:
@@ -55,6 +71,7 @@ private:
     void rebuildFieldChoices();
     void beginReleaseDetailFetch(int index);
     void applyReleaseDetailFields(int index, int fetchId, const QVariantMap &fields);
+    void rebuildTitleFixProposals();
     void abortNetwork();
     void startGet(const QUrl &url, const QList<QPair<QByteArray, QByteArray>> &headers,
                   PendingKind kind);
@@ -78,7 +95,14 @@ private:
     PendingKind m_pendingKind = PendingKind::None;
     QString m_searchArtist;
     QString m_searchAlbum;
+    QString m_searchEdition;
+    QStringList m_searchFormats;
     QVariantList m_searchAccum;
     int m_searchesRemaining = 0;
     int m_detailIndex = -1;
+    QVariantList m_localTracksForTitleFix;
+    int m_localTrackCount = 0;
+    QVariantList m_titleFixProposals;
+    QVariantList m_titleFixUnmatched;
+    QHash<int, bool> m_titleFixChecked;
 };

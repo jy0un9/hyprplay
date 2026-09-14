@@ -39,38 +39,45 @@ Pane {
 
     Component.onCompleted: Qt.callLater(applyLayout)
 
+    function scrollSelectionIntoView() {
+        if (App.selectedTrackIndex >= 0 && App.selectedTrackIndex < trackList.count)
+            trackList.positionViewAtIndex(App.selectedTrackIndex, ListView.Contain)
+        if (App.selectedArtist.length > 0) {
+            for (let i = 0; i < artistList.count; i++) {
+                if (App.artists.artistAt(i) === App.selectedArtist) {
+                    artistList.positionViewAtIndex(i, ListView.Center)
+                    break
+                }
+            }
+        }
+        if (App.selectedAlbum.length > 0) {
+            for (let j = 0; j < albumList.count; j++) {
+                if (albumList.model[j] === App.selectedAlbum) {
+                    albumList.positionViewAtIndex(j, ListView.Contain)
+                    break
+                }
+            }
+        }
+    }
+
     Connections {
         target: App
         function onSelectedArtistChanged() {
             albumsPane.applyWidth()
         }
         function onSelectionChanged() {
-            if (App.selectedTrackIndex >= 0 && App.selectedTrackIndex < trackList.count)
-                trackList.positionViewAtIndex(App.selectedTrackIndex, ListView.Contain)
-            for (let i = 0; i < artistList.count; i++) {
-                if (App.artists.artistAt(i) === App.selectedArtist) {
-                    artistList.positionViewAtIndex(i, ListView.Contain)
-                    break
-                }
-            }
-            if (App.selectedAlbum.length > 0) {
-                for (let j = 0; j < albumList.count; j++) {
-                    if (albumList.model[j] === App.selectedAlbum) {
-                        albumList.positionViewAtIndex(j, ListView.Contain)
-                        break
-                    }
-                }
-            }
+            // Defer until ListView model rows are committed after search close/refresh.
+            Qt.callLater(libraryView.scrollSelectionIntoView)
         }
     }
 
     background: Rectangle { color: Theme.background }
 
-    Menu {
+    AdaptiveMenu {
         id: artistContextMenu
         property string artistName: ""
 
-        MenuItem {
+        ThemedMenuItem {
             text: "Edit artist tags"
             Accessible.name: text
             onTriggered: {
@@ -79,17 +86,28 @@ Pane {
             }
         }
         MenuSeparator {}
-        MenuItem {
+        ThemedMenuItem {
             text: App.discogs.busy ? "Fetching from Discogs…" : "Fetch from Discogs"
             Accessible.name: text
-            enabled: !App.discogs.busy
+            enabled: !App.discogs.busy && !App.bulkDiscogsAlbumsActive
             onTriggered: {
                 App.selectArtist(artistContextMenu.artistName)
                 App.fetchDiscogsForSelectedArtist()
             }
         }
+        ThemedMenuItem {
+            text: App.bulkDiscogsAlbumsActive
+                  ? "Fetching album info…"
+                  : "Fetch album info for all albums"
+            Accessible.name: text
+            enabled: !App.discogs.busy && !App.bulkDiscogsAlbumsActive
+            onTriggered: {
+                App.selectArtist(artistContextMenu.artistName)
+                App.fetchDiscogsForAllArtistAlbums()
+            }
+        }
         MenuSeparator {}
-        MenuItem {
+        ThemedMenuItem {
             text: App.lyrics.busy ? "Fetching lyrics…" : "Fetch lyrics for all tracks"
             Accessible.name: text
             enabled: !App.lyrics.busy
@@ -100,11 +118,11 @@ Pane {
         }
     }
 
-    Menu {
+    AdaptiveMenu {
         id: albumContextMenu
         property string albumName: ""
 
-        MenuItem {
+        ThemedMenuItem {
             text: "Edit album tags"
             Accessible.name: text
             onTriggered: {
@@ -112,23 +130,32 @@ Pane {
                 App.openAlbumTagEditor()
             }
         }
-        MenuItem {
+        ThemedMenuItem {
             text: App.discogs.busy ? "Fetching from Discogs…" : "Fetch album info from Discogs"
             Accessible.name: text
-            enabled: !App.discogs.busy
+            enabled: !App.discogs.busy && !App.bulkDiscogsAlbumsActive
             onTriggered: {
                 App.selectAlbum(albumContextMenu.albumName)
                 App.openDiscogsForSelectedAlbum()
             }
         }
+        ThemedMenuItem {
+            text: App.metadataSearch.searching && App.titleFixOpen ? "Fixing titles…" : "Title Fix"
+            Accessible.name: text
+            enabled: !App.metadataSearch.searching || !App.titleFixOpen
+            onTriggered: {
+                App.selectAlbum(albumContextMenu.albumName)
+                App.openTitleFix()
+            }
+        }
         MenuSeparator {}
-        Menu {
+        AdaptiveMenu {
             id: addAlbumToPlaylistMenu
             title: "Add album to playlist"
 
             Instantiator {
                 model: App.playlistItems
-                delegate: MenuItem {
+                delegate: ThemedMenuItem {
                     text: model.name
                     Accessible.name: "Add album to " + model.name
                     onTriggered: {
@@ -139,7 +166,7 @@ Pane {
                 onObjectAdded: (index, object) => addAlbumToPlaylistMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => addAlbumToPlaylistMenu.removeItem(object)
             }
-            MenuItem {
+            ThemedMenuItem {
                 text: "No playlists yet — create one in Playlists"
                 Accessible.name: text
                 enabled: false
@@ -148,7 +175,7 @@ Pane {
             }
         }
         MenuSeparator {}
-        MenuItem {
+        ThemedMenuItem {
             text: App.lyrics.busy ? "Fetching lyrics…" : "Fetch lyrics for album"
             Accessible.name: text
             enabled: !App.lyrics.busy
@@ -159,18 +186,18 @@ Pane {
         }
     }
 
-    Menu {
+    AdaptiveMenu {
         id: trackContextMenu
         property int trackIndex: -1
 
-        MenuItem {
+        ThemedMenuItem {
             text: "Edit tags"
             Accessible.name: text
             enabled: App.multiSelectedTrackCount <= 1
             onTriggered: App.openTrackTagEditor(trackContextMenu.trackIndex)
         }
         MenuSeparator {}
-        Menu {
+        AdaptiveMenu {
             id: addTrackToPlaylistMenu
             title: App.multiSelectedTrackCount > 1
                    ? ("Add " + App.multiSelectedTrackCount + " tracks to playlist")
@@ -178,7 +205,7 @@ Pane {
 
             Instantiator {
                 model: App.playlistItems
-                delegate: MenuItem {
+                delegate: ThemedMenuItem {
                     text: model.name
                     Accessible.name: addTrackToPlaylistMenu.title + " " + model.name
                     onTriggered: App.addSelectedTracksToPlaylist(model.name)
@@ -186,7 +213,7 @@ Pane {
                 onObjectAdded: (index, object) => addTrackToPlaylistMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => addTrackToPlaylistMenu.removeItem(object)
             }
-            MenuItem {
+            ThemedMenuItem {
                 text: "No playlists yet — create one in Playlists"
                 Accessible.name: text
                 enabled: false
@@ -195,7 +222,7 @@ Pane {
             }
         }
         MenuSeparator {}
-        MenuItem {
+        ThemedMenuItem {
             text: App.lyrics.busy ? "Fetching lyrics…" : "Fetch lyrics"
             Accessible.name: text
             enabled: !App.lyrics.busy && App.multiSelectedTrackCount <= 1
@@ -216,15 +243,19 @@ Pane {
         anchors.top: parent.top
         anchors.topMargin: libraryView.searchReservedHeight
         orientation: Qt.Horizontal
+        onResizingChanged: {
+            if (!resizing)
+                libraryView.persistLayout()
+        }
 
-            handle: SplitHandle {
-                orientation: Qt.Horizontal
-                onReleased: libraryView.persistLayout()
-            }
+        handle: SplitHandle {
+            orientation: Qt.Horizontal
+        }
 
             Item {
                 id: artistsPane
                 property real paneWidth: 220
+                clip: true
                 SplitView.preferredWidth: paneWidth
                 SplitView.minimumWidth: 140
                 SplitView.maximumWidth: 420
@@ -257,6 +288,8 @@ Pane {
                         color: Theme.accent
                         Layout.leftMargin: Theme.spaceMd
                         Layout.rightMargin: Theme.spaceMd
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
                         visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
                                  && App.librarySearchScope === "artists"
                     }
@@ -268,19 +301,9 @@ Pane {
                         color: Theme.foreground
                         Layout.leftMargin: Theme.spaceMd
                         Layout.rightMargin: Theme.spaceMd
-                        visible: !App.librarySearchOpen
-                    }
-
-                    Label {
-                        text: App.lyrics.status
-                        font.pixelSize: Theme.fontCaption
-                        color: Theme.foreground
-                        opacity: 0.75
-                        wrapMode: Text.WordWrap
-                        Layout.leftMargin: Theme.spaceMd
-                        Layout.rightMargin: Theme.spaceMd
                         Layout.fillWidth: true
-                        visible: App.lyrics.status.length > 0
+                        elide: Text.ElideRight
+                        visible: !App.librarySearchOpen
                     }
 
                     ProgressBar {
@@ -317,7 +340,11 @@ Pane {
                             highlighted: App.selectedArtist === model.name
                             accented: App.libraryFocusColumn === "artists"
                                       && App.selectedArtist === model.name
-                            onClicked: App.selectArtist(model.name)
+                            onClicked: {
+                                App.selectArtist(model.name)
+                                if (App.librarySearchOpen)
+                                    App.acceptLibrarySearch()
+                            }
 
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
@@ -346,6 +373,8 @@ Pane {
             Item {
                 id: albumsPane
                 property real paneWidth: 0
+                clip: true
+                visible: App.selectedArtist.length > 0
 
                 function applyWidth() {
                     paneWidth = App.selectedArtist.length > 0 ? App.config.layoutLibraryAlbumsWidth : 0
@@ -370,6 +399,7 @@ Pane {
                     visible: App.selectedArtist.length > 0
 
                     Label {
+                        id: selectedArtistLabel
                         text: App.selectedArtist
                         font.bold: true
                         color: Theme.foreground
@@ -378,6 +408,12 @@ Pane {
                         Layout.leftMargin: Theme.spaceMd
                         Layout.topMargin: Theme.spaceMd
                         Layout.rightMargin: Theme.spaceMd
+                        HoverHandler { id: selectedArtistHover }
+                        ElisionPopup {
+                            visible: selectedArtistHover.hovered && selectedArtistLabel.truncated
+                            text: selectedArtistLabel.text
+                        }
+
                     }
 
                     Label {
@@ -387,6 +423,8 @@ Pane {
                         color: Theme.accent
                         Layout.leftMargin: Theme.spaceMd
                         Layout.rightMargin: Theme.spaceMd
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
                         visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
                                  && App.librarySearchScope === "albums"
                     }
@@ -407,7 +445,11 @@ Pane {
                             highlighted: App.selectedAlbum === modelData
                             accented: App.libraryFocusColumn === "albums"
                                       && App.selectedAlbum === modelData
-                            onClicked: App.selectAlbum(modelData)
+                            onClicked: {
+                                App.selectAlbum(modelData)
+                                if (App.librarySearchOpen)
+                                    App.acceptLibrarySearch()
+                            }
 
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
@@ -430,6 +472,7 @@ Pane {
             Item {
                 SplitView.fillWidth: true
                 SplitView.minimumWidth: 240
+                clip: true
 
                 HoverHandler {
                     onHoveredChanged: {
@@ -463,12 +506,19 @@ Pane {
                         }
 
                         Label {
+                            id: selectedAlbumLabel
                             text: App.selectedAlbum.length > 0 ? App.selectedAlbum : "Tracks"
                             font.pixelSize: Theme.fontHeading
                             font.bold: true
                             color: Theme.foreground
                             elide: Text.ElideRight
                             Layout.fillWidth: true
+                            HoverHandler { id: selectedAlbumHover }
+                            ElisionPopup {
+                                visible: selectedAlbumHover.hovered && selectedAlbumLabel.truncated
+                                text: selectedAlbumLabel.text
+                            }
+
                         }
                     }
 
@@ -489,6 +539,8 @@ Pane {
                         color: Theme.accent
                         Layout.leftMargin: Theme.spaceMd
                         Layout.rightMargin: Theme.spaceMd
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
                         visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
                                  && App.librarySearchScope === "tracks"
                     }
@@ -533,6 +585,7 @@ Pane {
                                 }
 
                                 Label {
+                                    id: libraryTrackTitleLabel
                                     text: trackDelegate.searchHighlight
                                           ? App.highlightSearchMatch(model.title, Theme.accent)
                                           : model.title
@@ -543,6 +596,12 @@ Pane {
                                              ? (trackDelegate.highlighted || trackDelegate.multiSelected ? 1 : 0.92) : 0.45
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
+                                    HoverHandler { id: libraryTrackTitleHover }
+                                    ElisionPopup {
+                                        visible: libraryTrackTitleHover.hovered && libraryTrackTitleLabel.truncated
+                                        text: model.title
+                                    }
+
                                 }
 
                                 Label {
@@ -565,6 +624,8 @@ Pane {
                                 acceptedButtons: Qt.LeftButton
                                 onClicked: function(mouse) {
                                     App.handleTrackClick(index, mouse.modifiers)
+                                    if (App.librarySearchOpen && mouse.modifiers === Qt.NoModifier)
+                                        App.acceptLibrarySearch()
                                 }
                             }
 
@@ -657,6 +718,8 @@ Pane {
                     selectByMouse: true
                     Accessible.name: "Library search"
                     Accessible.role: Accessible.EditableText
+                    // Steal arrows/Enter before TextField uses them for the caret.
+                    Keys.priority: Keys.BeforeItem
                     onTextChanged: {
                         if (App.librarySearchQuery !== text)
                             App.setLibrarySearchQuery(text)
@@ -668,6 +731,22 @@ Pane {
                     Keys.onTabPressed: function(event) {
                         event.accepted = true
                         App.cycleLibrarySearchScope()
+                    }
+                    Keys.onUpPressed: function(event) {
+                        event.accepted = true
+                        App.librarySearchMoveUp()
+                    }
+                    Keys.onDownPressed: function(event) {
+                        event.accepted = true
+                        App.librarySearchMoveDown()
+                    }
+                    Keys.onReturnPressed: function(event) {
+                        event.accepted = true
+                        App.acceptLibrarySearch()
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        event.accepted = true
+                        App.acceptLibrarySearch()
                     }
                 }
 
@@ -705,9 +784,9 @@ Pane {
 
     function searchPlaceholder() {
         switch (App.librarySearchScope) {
-        case "albums": return "Search albums…  (Tab: tracks)"
-        case "tracks": return "Search tracks…  (Tab: artists)"
-        default: return "Search artists…  (Tab: albums)"
+        case "albums": return "Search albums…  (↑↓ select, Enter · Tab: tracks)"
+        case "tracks": return "Search tracks…  (↑↓ select, Enter · Tab: artists)"
+        default: return "Search artists…  (↑↓ select, Enter · Tab: albums)"
         }
     }
 

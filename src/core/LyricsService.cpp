@@ -31,8 +31,8 @@ constexpr char kNeteaseSearch[] = "https://music.163.com/api/search/get";
 constexpr char kNeteaseLyric[] = "https://music.163.com/api/song/lyric";
 constexpr char kOvBase[] = "https://api.lyrics.ovh/v1";
 constexpr char kGeniusSearch[] = "https://api.genius.com/search";
-constexpr char kUserAgent[] = "qt-music/1.0 (+https://github.com/jy0un9/qt-music)";
-constexpr char kClientIdent[] = "qt-music/1.0 (+https://github.com/jy0un9/qt-music)";
+constexpr char kUserAgent[] = "qt-music/0.1.0 (+https://github.com/jy0un9/qt-music)";
+constexpr char kClientIdent[] = "qt-music/0.1.0 (+https://github.com/jy0un9/qt-music)";
 constexpr char kBrowserAgent[] =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/126.0 Safari/537.36";
@@ -156,6 +156,12 @@ void LyricsService::fetchForTracks(const QVariantList &tracks) {
     enqueue(valid);
 }
 
+void LyricsService::retryForTrack(const QVariantMap &track) {
+    QVariantMap forced = track;
+    forced.insert(QStringLiteral("__forceRetry"), true);
+    fetchForTracks({forced});
+}
+
 void LyricsService::cancel() {
     if (!m_busy) {
         return;
@@ -270,6 +276,7 @@ void LyricsService::processNext() {
         }
     }
     m_current.stage = 0;
+    m_current.searchVariant = 0;
     m_current.externalId = 0;
     m_current.pageUrl.clear();
     m_hasCurrent = true;
@@ -281,7 +288,11 @@ void LyricsService::processNext() {
         finishTrack(false, true);
         return;
     }
-    if (negativeHit(path)) {
+    // Explicit single-track fetch (karaoke "Fetch lyrics" button, track menu)
+    // retries even known misses — the DB grows and tags get fixed.
+    const bool forceRetry =
+        m_current.track.value(QStringLiteral("__forceRetry")).toBool();
+    if (!forceRetry && negativeHit(path)) {
         // Known miss from an earlier full-chain check: no network, and the
         // summary must not claim lyrics are present.
         finishTrack(false, false, {}, true);
@@ -335,6 +346,7 @@ void LyricsService::startProviderRequest() {
         }
         m_current.provider = static_cast<Provider>(static_cast<int>(m_current.provider) + 1);
         m_current.stage = 0;
+        m_current.searchVariant = 0;
         m_current.externalId = 0;
         m_current.pageUrl.clear();
     }
@@ -415,6 +427,7 @@ void LyricsService::advanceProvider() {
     }
     m_current.provider = static_cast<Provider>(static_cast<int>(m_current.provider) + 1);
     m_current.stage = 0;
+    m_current.searchVariant = 0;
     m_current.externalId = 0;
     m_current.pageUrl.clear();
     startProviderRequest();
@@ -503,7 +516,6 @@ void LyricsService::onReplyFinished() {
         finishTrack(false, false);
     }
 }
-
 LyricsService::StepResult LyricsService::handleLrclibReply(int httpStatus, bool netErr,
                                                            const QByteArray &body) {
     const QString path = m_current.track.value(QStringLiteral("path")).toString();
@@ -514,10 +526,20 @@ LyricsService::StepResult LyricsService::handleLrclibReply(int httpStatus, bool 
             return StepResult::Transient;
         }
         if (httpStatus == 404 && m_current.stage == 0) {
+            // /get is duration-strict; fall through to the /search walk.
             m_current.stage = 1;
-            const QUrl url = searchUrl(m_current.track);
-            startRequest(url, lrclibRequest(url));
-            return StepResult::Done;
+            m_current.searchVariant = -1;
+            if (requestNextLrclibSearch()) {
+                return StepResult::Done;
+            }
+            return StepResult::Miss;
+        }
+        if (httpStatus == 404 && m_current.stage == 1) {
+            // A search variant 404'd — try the next variant.
+            if (requestNextLrclibSearch()) {
+                return StepResult::Done;
+            }
+            return StepResult::Miss;
         }
         return StepResult::Miss;
     }
@@ -532,46 +554,62 @@ LyricsService::StepResult LyricsService::handleLrclibReply(int httpStatus, bool 
                          &m_fetchedLrclib);
         } else {
             m_current.stage = 1;
-            const QUrl url = searchUrl(m_current.track);
-            startRequest(url, lrclibRequest(url));
+            m_current.searchVariant = -1;
+            if (!requestNextLrclibSearch()) {
+                return StepResult::Miss;
+            }
         }
         return StepResult::Done;
     }
 
     if (m_current.stage == 1) {
         const QJsonArray items = doc.isArray() ? doc.array() : QJsonArray();
-        qint64 pickId = 0;
-        for (const QJsonValue &value : items) {
-            const QJsonObject obj = value.toObject();
-            if (!syncedUsable(obj.value(QStringLiteral("syncedLyrics")).toString())) {
-                continue;
+        // /search returns full records inline — save the scored hit directly
+        // instead of a second round-trip.
+        const qint64 pickId = LyricsParsers::pickLrclibMatch(
+            items, m_current.track.value(QStringLiteral("artist")).toString(),
+            m_current.track.value(QStringLiteral("title")).toString(),
+            m_current.track.value(QStringLiteral("album")).toString(), wantSecs);
+        if (pickId > 0) {
+            for (const QJsonValue &value : items) {
+                const QJsonObject obj = value.toObject();
+                if (obj.value(QStringLiteral("id")).toVariant().toLongLong() != pickId) {
+                    continue;
+                }
+                const QString synced = obj.value(QStringLiteral("syncedLyrics")).toString();
+                if (syncedUsable(synced)) {
+                    completeSave(sidecarPath(path), synced, QStringLiteral("LRCLIB"),
+                                 &m_fetchedLrclib);
+                    return StepResult::Done;
+                }
+                break;
             }
-            if (!durationMatches(obj.value(QStringLiteral("duration")).toDouble(-1.0),
-                                 wantSecs)) {
-                continue;
-            }
-            pickId = obj.value(QStringLiteral("id")).toVariant().toLongLong();
-            break;
+            // Scored hit had no usable synced text — fetch the full record.
+            m_current.stage = 2;
+            m_current.externalId = pickId;
+            const QUrl url(QString::fromUtf8(kLrclibBase) + QStringLiteral("/get/")
+                           + QString::number(pickId));
+            startRequest(url, lrclibRequest(url));
+            return StepResult::Done;
         }
-        if (pickId <= 0) {
-            return StepResult::Miss;
+        if (requestNextLrclibSearch()) {
+            return StepResult::Done;
         }
-        m_current.stage = 2;
-        m_current.externalId = pickId;
-        const QUrl url(QString::fromUtf8(kLrclibBase) + QStringLiteral("/get?id=")
-                       + QString::number(pickId));
-        startRequest(url, lrclibRequest(url));
-        return StepResult::Done;
+        return StepResult::Miss;
     }
 
     const QJsonObject obj = doc.object();
     const QString synced = obj.value(QStringLiteral("syncedLyrics")).toString();
     if (syncedUsable(synced)) {
         completeSave(sidecarPath(path), synced, QStringLiteral("LRCLIB"), &m_fetchedLrclib);
-    } else {
-        return StepResult::Miss;
+        return StepResult::Done;
     }
-    return StepResult::Done;
+    // get-by-id had no synced lyrics — keep walking remaining variants.
+    m_current.stage = 1;
+    if (requestNextLrclibSearch()) {
+        return StepResult::Done;
+    }
+    return StepResult::Miss;
 }
 
 LyricsService::StepResult LyricsService::handleNeteaseReply(int httpStatus, bool netErr,
@@ -826,15 +864,76 @@ QUrl LyricsService::cachedUrl(const QVariantMap &track) const {
     return url;
 }
 
-QUrl LyricsService::searchUrl(const QVariantMap &track) const {
+QString LyricsService::lrclibSearchQuery(const QVariantMap &track, int variant) const {
+    const QString artist = track.value(QStringLiteral("artist")).toString().trimmed();
+    const QString title = track.value(QStringLiteral("title")).toString().trimmed();
+    if (artist.isEmpty() || title.isEmpty()) {
+        return {};
+    }
+    if (variant == 0) {
+        return artist + QLatin1Char(' ') + title;
+    }
+    const QString strippedArtist = LyricsParsers::normalizeQueryText(artist);
+    const QString strippedTitle = LyricsParsers::normalizeQueryText(title);
+    if (variant == 1) {
+        if (strippedArtist.isEmpty() || strippedTitle.isEmpty()) {
+            return {};
+        }
+        // Skip when stripping changed nothing — variant 0 already tried it.
+        if (strippedArtist.compare(artist, Qt::CaseInsensitive) == 0
+            && strippedTitle.compare(title, Qt::CaseInsensitive) == 0) {
+            return {};
+        }
+        return strippedArtist + QLatin1Char(' ') + strippedTitle;
+    }
+    if (variant == 2) {
+        return strippedTitle.isEmpty() ? QString() : strippedTitle;
+    }
+    return {};
+}
+
+QUrl LyricsService::searchUrl(const QVariantMap &track, int variant) const {
     QUrl url(QString::fromUtf8(kLrclibBase) + QStringLiteral("/search"));
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("q"),
-                       track.value(QStringLiteral("artist")).toString().trimmed()
-                           + QLatin1Char(' ')
-                           + track.value(QStringLiteral("title")).toString().trimmed());
+    if (variant <= 2) {
+        const QString q = lrclibSearchQuery(track, variant);
+        if (q.isEmpty()) {
+            return QUrl();
+        }
+        query.addQueryItem(QStringLiteral("q"), q);
+    } else if (variant == 3) {
+        // Structured fallback: no `q`, so track_name/artist_name apply.
+        const QString title = LyricsParsers::normalizeQueryText(
+            track.value(QStringLiteral("title")).toString());
+        const QString artist =
+            track.value(QStringLiteral("artist")).toString().trimmed();
+        if (title.isEmpty() || artist.isEmpty()) {
+            return QUrl();
+        }
+        query.addQueryItem(QStringLiteral("track_name"), title);
+        query.addQueryItem(QStringLiteral("artist_name"), artist);
+        const QString album =
+            track.value(QStringLiteral("album")).toString().trimmed();
+        if (!album.isEmpty()) {
+            query.addQueryItem(QStringLiteral("album_name"), album);
+        }
+    } else {
+        return QUrl();
+    }
     url.setQuery(query);
     return url;
+}
+
+bool LyricsService::requestNextLrclibSearch() {
+    while (++m_current.searchVariant <= 3) {
+        const QUrl url = searchUrl(m_current.track, m_current.searchVariant);
+        if (url.isEmpty()) {
+            continue; // duplicate or unusable variant — skip without a request
+        }
+        startRequest(url, lrclibRequest(url));
+        return true;
+    }
+    return false;
 }
 
 double LyricsService::trackDurationSecs(const QVariantMap &track) {

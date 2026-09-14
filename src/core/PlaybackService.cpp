@@ -117,6 +117,9 @@ bool PlaybackService::initMpv() {
     mpv_observe_property(m_mpv, 0, "eof-reached", MPV_FORMAT_FLAG);
 
     m_error.clear();
+    if (!m_audioDevice.isEmpty()) {
+        runMpvCommand(m_mpv, {QStringLiteral("set"), QStringLiteral("audio-device"), m_audioDevice});
+    }
     setVolume(m_volume);
     refreshAudioBackend();
     return true;
@@ -522,6 +525,10 @@ void PlaybackService::setVolume(int volume) {
 }
 
 void PlaybackService::setMuted(bool muted) {
+    if (m_dacPassthrough) {
+        // Bit-perfect: mpv mute is DSP on this path; pause or use the DAC knob.
+        return;
+    }
     m_muted = muted;
     if (m_mpv) {
         runMpvCommand(m_mpv, {QStringLiteral("set"), QStringLiteral("mute"),
@@ -578,6 +585,11 @@ void PlaybackService::setDacPassthrough(bool enabled) {
         return;
     }
     m_dacPassthrough = enabled;
+    if (enabled && m_muted) {
+        // Mute never engages on the passthrough path; drop stale flag so the icon stays honest.
+        m_muted = false;
+        emit volumeChanged();
+    }
     emit dacPassthroughChanged();
 
     if (!m_mpv) {
@@ -609,6 +621,68 @@ void PlaybackService::setDacPassthrough(bool enabled) {
             pause();
         }
     }
+}
+
+void PlaybackService::setAudioDevice(const QString &name) {
+    if (m_audioDevice == name) {
+        return;
+    }
+    m_audioDevice = name;
+    if (m_mpv) {
+        const QString oldBackend = m_audioBackend;
+        runMpvCommand(m_mpv, {QStringLiteral("set"), QStringLiteral("audio-device"),
+                              name.isEmpty() ? QStringLiteral("auto") : name});
+        refreshAudioBackend();
+        if (m_audioBackend == oldBackend) {
+            // Backend string can stay identical (e.g. pre-init); still notify audioDevice bindings.
+            emit audioBackendChanged();
+        }
+    } else {
+        emit audioBackendChanged();
+    }
+}
+
+QVariantList PlaybackService::audioDeviceList() const {
+    QVariantList out;
+    if (!m_mpv) {
+        return out;
+    }
+    mpv_node node;
+    if (mpv_get_property(m_mpv, "audio-device-list", MPV_FORMAT_NODE, &node) < 0) {
+        return out;
+    }
+    if (node.format == MPV_FORMAT_NODE_ARRAY && node.u.list) {
+        for (int i = 0; i < node.u.list->num; ++i) {
+            const mpv_node *entry = &node.u.list->values[i];
+            if (entry->format != MPV_FORMAT_NODE_MAP || !entry->u.list) {
+                continue;
+            }
+            QString name;
+            QString description;
+            for (int j = 0; j < entry->u.list->num; ++j) {
+                const char *key = entry->u.list->keys[j];
+                const mpv_node *value = &entry->u.list->values[j];
+                if (!key || value->format != MPV_FORMAT_STRING || !value->u.string) {
+                    continue;
+                }
+                if (qstrcmp(key, "name") == 0) {
+                    name = QString::fromUtf8(value->u.string);
+                } else if (qstrcmp(key, "description") == 0) {
+                    description = QString::fromUtf8(value->u.string);
+                }
+            }
+            if (name.isEmpty()) {
+                continue;
+            }
+            QVariantMap item;
+            item.insert(QStringLiteral("name"), name);
+            item.insert(QStringLiteral("description"),
+                        description.isEmpty() ? name : description);
+            out.append(item);
+        }
+    }
+    mpv_free_node_contents(&node);
+    return out;
 }
 
 void PlaybackService::handleMprisPlay() { play(); }

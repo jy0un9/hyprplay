@@ -38,6 +38,8 @@ public:
 
     Q_INVOKABLE void fetchForTrack(const QVariantMap &track);
     Q_INVOKABLE void fetchForTracks(const QVariantList &tracks);
+    // Explicit single-track retry: bypasses the negative cache.
+    Q_INVOKABLE void retryForTrack(const QVariantMap &track);
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void setGeniusToken(const QString &token);
 
@@ -78,7 +80,9 @@ private:
         QVariantMap track;
         Provider provider = Provider::Lrclib;
         // Stage 0 = lookup/search, 1 = follow-up (get-by-id / lyric / page).
+        // For LRCLIB, stage 1 walks search query variants via searchVariant.
         int stage = 0;
+        int searchVariant = 0;
         qint64 externalId = 0;
         QString pageUrl;
     };
@@ -108,14 +112,19 @@ private:
     StepResult handleNeteaseReply(int httpStatus, bool netErr, const QByteArray &body);
     StepResult handleLyricsOvReply(int httpStatus, bool netErr, const QByteArray &body);
     StepResult handleGeniusReply(int httpStatus, bool netErr, const QByteArray &body);
-
     QNetworkRequest lrclibRequest(const QUrl &url) const;
     QNetworkRequest neteaseRequest(const QUrl &url) const;
     QNetworkRequest geniusApiRequest(const QUrl &url, const QString &token) const;
     QNetworkRequest geniusPageRequest(const QUrl &url) const;
     QNetworkRequest plainRequest(const QUrl &url) const;
     QUrl cachedUrl(const QVariantMap &track) const;
-    QUrl searchUrl(const QVariantMap &track) const;
+    // LRCLIB /search query walk: 0 = artist+title, 1 = stripped (no feat/
+    // parenthetical/track-number), 2 = title only, 3 = structured
+    // track_name+artist_name. Empty query = variants exhausted.
+    QString lrclibSearchQuery(const QVariantMap &track, int variant) const;
+    QUrl searchUrl(const QVariantMap &track, int variant = 0) const;
+    // Next LRCLIB /search variant; false when the walk is exhausted.
+    bool requestNextLrclibSearch();
     static double trackDurationSecs(const QVariantMap &track);
     static bool syncedUsable(const QString &synced);
     static bool plainUsable(const QString &plain);

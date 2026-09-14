@@ -9,6 +9,7 @@ struct PlaybackConfig {
     int seekStepSecs = 5;
     int lyricsOffsetMs = 0;
     bool dacPassthrough = false;
+    QString audioDevice;
 };
 
 struct LyricsConfig {
@@ -26,11 +27,14 @@ class ConfigService : public QObject {
     Q_PROPERTY(bool libraryWatchEnabled READ libraryWatchEnabled WRITE setLibraryWatchEnabled NOTIFY configChanged)
     Q_PROPERTY(QString playlistsDir READ playlistsDir NOTIFY configChanged)
     Q_PROPERTY(QString importInbox READ importInbox WRITE setImportInbox NOTIFY configChanged)
+    Q_PROPERTY(QString importMode READ importMode WRITE setImportMode NOTIFY configChanged)
+    Q_PROPERTY(int opusBitrateKbps READ opusBitrateKbps WRITE setOpusBitrateKbps NOTIFY configChanged)
     Q_PROPERTY(QString beetsBinary READ beetsBinary WRITE setBeetsBinary NOTIFY configChanged)
     Q_PROPERTY(bool beetsNomove READ beetsNomove WRITE setBeetsNomove NOTIFY configChanged)
     Q_PROPERTY(int volume READ volume WRITE setVolume NOTIFY configChanged)
     Q_PROPERTY(int seekStepSecs READ seekStepSecs WRITE setSeekStepSecs NOTIFY configChanged)
     Q_PROPERTY(bool dacPassthrough READ dacPassthrough WRITE setDacPassthrough NOTIFY configChanged)
+    Q_PROPERTY(QString audioDevice READ audioDevice WRITE setAudioDevice NOTIFY configChanged)
     Q_PROPERTY(int lyricsOffsetMs READ lyricsOffsetMs WRITE setLyricsOffsetMs NOTIFY configChanged)
     Q_PROPERTY(int lyricsFetchIntervalSecs READ lyricsFetchIntervalSecs WRITE setLyricsFetchIntervalSecs NOTIFY configChanged)
     Q_PROPERTY(int lyricsNegativeCacheDays READ lyricsNegativeCacheDays WRITE setLyricsNegativeCacheDays NOTIFY configChanged)
@@ -59,10 +63,13 @@ public:
     QString playlistsDir() const { return m_playlistsDir; }
     QString importInbox() const { return m_importInbox; }
     QString importInboxPath() const;
+    QString importMode() const { return m_importMode; }
+    int opusBitrateKbps() const { return m_opusBitrateKbps; }
     QString beetsBinary() const { return m_beetsBinary; }
     bool beetsNomove() const { return m_beetsNomove; }
     int volume() const { return m_playback.volume; }
     bool dacPassthrough() const { return m_playback.dacPassthrough; }
+    QString audioDevice() const { return m_playback.audioDevice; }
     int seekStepSecs() const { return m_playback.seekStepSecs; }
     int lyricsOffsetMs() const { return m_playback.lyricsOffsetMs; }
     int lyricsFetchIntervalSecs() const { return m_lyrics.fetchIntervalSecs; }
@@ -94,6 +101,7 @@ public:
     Q_INVOKABLE void setVolume(int volume);
     Q_INVOKABLE void setSeekStepSecs(int secs);
     Q_INVOKABLE void setDacPassthrough(bool enabled);
+    Q_INVOKABLE void setAudioDevice(const QString &name);
     Q_INVOKABLE void setLyricsOffsetMs(int offsetMs);
     Q_INVOKABLE void setLyricsFetchIntervalSecs(int secs);
     Q_INVOKABLE void setLyricsNegativeCacheDays(int days);
@@ -101,6 +109,8 @@ public:
     Q_INVOKABLE void setLyricsPlainEnabled(bool enabled);
     Q_INVOKABLE void setLyricsSlowIntervalSecs(int secs);
     Q_INVOKABLE void setImportInbox(const QString &path);
+    Q_INVOKABLE void setImportMode(const QString &mode);
+    Q_INVOKABLE void setOpusBitrateKbps(int kbps);
     Q_INVOKABLE void setBeetsBinary(const QString &binary);
     Q_INVOKABLE void setBeetsNomove(bool nomove);
     Q_INVOKABLE void setUiFontFamily(const QString &family);
@@ -132,6 +142,8 @@ private:
     QString m_playlistsDir;
     QString m_lyricsDir;
     QString m_importInbox;
+    QString m_importMode = QStringLiteral("copy");
+    int m_opusBitrateKbps = 256;
     PlaybackConfig m_playback;
     LyricsConfig m_lyrics;
     QString m_beetsBinary = QStringLiteral("beet");

@@ -11,6 +11,9 @@
 #include <taglib/flacfile.h>
 #include <taglib/xiphcomment.h>
 #include <taglib/opusfile.h>
+#include <taglib/mpegfile.h>
+#include <taglib/id3v2tag.h>
+#include <taglib/mp4file.h>
 #include <taglib/tpropertymap.h>
 
 namespace {
@@ -64,6 +67,34 @@ void setAlbumArtistField(QVariantMap *row, TagLib::Ogg::XiphComment *comment) {
     }
 }
 
+void setAlbumArtistFromMap(QVariantMap *row, const TagLib::PropertyMap &props) {
+    if (!row) {
+        return;
+    }
+    const TagLib::StringList values = props[TagLib::String("ALBUMARTIST")];
+    if (!values.isEmpty()) {
+        row->insert(QStringLiteral("albumArtist"), tagString(values.front()));
+        return;
+    }
+    const TagLib::StringList tpe2 = props[TagLib::String("TPE2")];
+    if (!tpe2.isEmpty()) {
+        row->insert(QStringLiteral("albumArtist"), tagString(tpe2.front()));
+    }
+}
+
+bool applyPropertyAlbumArtist(TagLib::PropertyMap *props, const QVariantMap &fields) {
+    if (!props || !fields.contains(QStringLiteral("albumArtist"))) {
+        return true;
+    }
+    const QString albumArtist = fields.value(QStringLiteral("albumArtist")).toString().trimmed();
+    if (albumArtist.isEmpty()) {
+        props->erase(TagLib::String("ALBUMARTIST"));
+    } else {
+        (*props)[TagLib::String("ALBUMARTIST")] = TagLib::StringList(toTagString(albumArtist));
+    }
+    return true;
+}
+
 bool saveFileTags(const QString &path, const QVariantMap &fields, QString *error) {
     const QString lower = path.toLower();
     if (lower.endsWith(QStringLiteral(".flac"))) {
@@ -108,6 +139,58 @@ bool saveFileTags(const QString &path, const QVariantMap &fields, QString *error
         if (!file.save()) {
             if (error) {
                 *error = QStringLiteral("Failed to save Opus tags");
+            }
+            return false;
+        }
+        return true;
+    }
+
+    if (lower.endsWith(QStringLiteral(".mp3"))) {
+        TagLib::MPEG::File file(QFile::encodeName(path).constData());
+        if (!file.isValid()) {
+            if (error) {
+                *error = QStringLiteral("Could not open MP3 file");
+            }
+            return false;
+        }
+        if (!applyFields(file.tag(), nullptr, fields)) {
+            if (error) {
+                *error = QStringLiteral("Could not read MP3 tags");
+            }
+            return false;
+        }
+        TagLib::PropertyMap props = file.properties();
+        applyPropertyAlbumArtist(&props, fields);
+        file.setProperties(props);
+        if (!file.save()) {
+            if (error) {
+                *error = QStringLiteral("Failed to save MP3 tags");
+            }
+            return false;
+        }
+        return true;
+    }
+
+    if (lower.endsWith(QStringLiteral(".m4a")) || lower.endsWith(QStringLiteral(".aac"))) {
+        TagLib::MP4::File file(QFile::encodeName(path).constData());
+        if (!file.isValid()) {
+            if (error) {
+                *error = QStringLiteral("Could not open M4A/AAC file");
+            }
+            return false;
+        }
+        if (!applyFields(file.tag(), nullptr, fields)) {
+            if (error) {
+                *error = QStringLiteral("Could not read M4A/AAC tags");
+            }
+            return false;
+        }
+        TagLib::PropertyMap props = file.properties();
+        applyPropertyAlbumArtist(&props, fields);
+        file.setProperties(props);
+        if (!file.save()) {
+            if (error) {
+                *error = QStringLiteral("Failed to save M4A/AAC tags");
             }
             return false;
         }
@@ -164,6 +247,16 @@ QVariantMap readExtendedTags(const QString &path) {
         TagLib::Ogg::Opus::File file(QFile::encodeName(path).constData());
         if (file.isValid() && file.tag()) {
             setAlbumArtistField(&row, file.tag());
+        }
+    } else if (lower.endsWith(QStringLiteral(".mp3"))) {
+        TagLib::MPEG::File file(QFile::encodeName(path).constData());
+        if (file.isValid()) {
+            setAlbumArtistFromMap(&row, file.properties());
+        }
+    } else if (lower.endsWith(QStringLiteral(".m4a")) || lower.endsWith(QStringLiteral(".aac"))) {
+        TagLib::MP4::File file(QFile::encodeName(path).constData());
+        if (file.isValid()) {
+            setAlbumArtistFromMap(&row, file.properties());
         }
     }
 

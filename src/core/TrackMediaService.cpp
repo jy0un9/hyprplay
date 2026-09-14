@@ -21,6 +21,7 @@
 #include <taglib/flacfile.h>
 #include <taglib/flacpicture.h>
 #include <taglib/flacproperties.h>
+#include <taglib/fileref.h>
 #include <taglib/opusfile.h>
 
 namespace {
@@ -198,6 +199,31 @@ QString TrackMediaService::qualityLabelForPath(const QString &path) {
             }
         }
         return QStringLiteral("Opus");
+    }
+
+    if (lower.endsWith(QStringLiteral(".mp3")) || lower.endsWith(QStringLiteral(".m4a"))
+        || lower.endsWith(QStringLiteral(".aac"))) {
+        const TagLib::FileRef ref(QFile::encodeName(path).constData());
+        const QString format = lower.endsWith(QStringLiteral(".mp3"))
+                                   ? QStringLiteral("MP3")
+                                   : (lower.endsWith(QStringLiteral(".m4a"))
+                                          ? QStringLiteral("M4A")
+                                          : QStringLiteral("AAC"));
+        if (!ref.isNull() && ref.audioProperties()) {
+            const TagLib::AudioProperties *props = ref.audioProperties();
+            const int bitrate = props->bitrate();
+            const QString rate = formatSampleRateKhz(static_cast<int>(props->sampleRate()));
+            if (bitrate > 0 && !rate.isEmpty()) {
+                return QStringLiteral("%1 %2 kbps / %3 kHz").arg(format).arg(bitrate).arg(rate);
+            }
+            if (bitrate > 0) {
+                return QStringLiteral("%1 %2 kbps").arg(format).arg(bitrate);
+            }
+            if (!rate.isEmpty()) {
+                return QStringLiteral("%1 / %2 kHz").arg(format, rate);
+            }
+        }
+        return format;
     }
 
     const QString ext = QFileInfo(path).suffix();

@@ -54,7 +54,8 @@ public:
     QStringList supportedUriSchemes() const { return {QStringLiteral("file")}; }
     QStringList supportedMimeTypes() const {
         return {QStringLiteral("audio/flac"), QStringLiteral("audio/opus"),
-                QStringLiteral("audio/ogg")};
+                QStringLiteral("audio/ogg"),  QStringLiteral("audio/mpeg"),
+                QStringLiteral("audio/mp4"),  QStringLiteral("audio/aac")};
     }
 
 public slots:
@@ -104,7 +105,9 @@ public:
     void setVolume(double volume);
     double rate() const { return 1.0; }
     QStringList supportedMimeTypes() const {
-        return {QStringLiteral("audio/flac"), QStringLiteral("audio/opus")};
+        return {QStringLiteral("audio/flac"), QStringLiteral("audio/opus"),
+                QStringLiteral("audio/ogg"),  QStringLiteral("audio/mpeg"),
+                QStringLiteral("audio/mp4"),  QStringLiteral("audio/aac")};
     }
     bool canGoNext() const { return hasTrack(); }
     bool canGoPrevious() const { return hasTrack(); }

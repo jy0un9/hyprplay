@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QStringList>
 #include <QVariantList>
 
 class ConfigService;
@@ -24,7 +25,9 @@ public:
     Q_INVOKABLE QString loadToken() const;
     Q_INVOKABLE void setToken(const QString &token);
     Q_INVOKABLE void searchArtists(const QString &query);
-    Q_INVOKABLE void searchReleases(const QString &artist, const QString &album);
+    Q_INVOKABLE void searchReleases(const QString &artist, const QString &album,
+                                    const QStringList &formats = {},
+                                    const QString &edition = {});
     Q_INVOKABLE void fetchArtist(const QString &artistName, const QString &artistFolder,
                                  quint64 discogsId = 0);
     Q_INVOKABLE void fetchRelease(const QString &artist, const QString &album,
@@ -77,4 +80,7 @@ private:
     QString m_pendingImageUrl;
     bool m_artistProfileOk = false;
     bool m_releaseInfoOk = false;
+    QStringList m_searchFormats;
 };
+
+QVariantList rankDiscogsAlbumCandidates(const QVariantList &results, int localTrackCount);

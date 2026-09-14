@@ -22,6 +22,7 @@ public:
     QString selectedPlaylist() const { return m_selectedPlaylist; }
     QString status() const { return m_status; }
     int playlistCount() const { return m_playlistNames.size(); }
+    int lastDuplicateSkipCount() const { return m_lastDuplicateSkipCount; }
 
     Q_INVOKABLE void reload();
     Q_INVOKABLE void selectPlaylist(const QString &name);
@@ -65,6 +66,7 @@ private:
     QHash<QString, int> m_trackCounts;
     QString m_selectedPlaylist;
     QString m_status;
+    int m_lastDuplicateSkipCount = 0;
     mutable QVariantList m_selectedTracks;
     mutable bool m_selectedTracksDirty = true;
 };

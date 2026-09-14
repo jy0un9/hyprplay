@@ -50,7 +50,15 @@ QString ConfigService::importInboxPath() const {
 QString ConfigService::configFilePath() const {
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
     QDir().mkpath(dir);
-    return dir + QStringLiteral("/config.toml");
+    const QString path = dir + QStringLiteral("/config.toml");
+    if (!QFile::exists(path)) {
+        const QString legacyNested =
+            QDir::homePath() + QStringLiteral("/.config/qt-music/qt-music/config.toml");
+        if (QFile::exists(legacyNested)) {
+            QFile::copy(legacyNested, path);
+        }
+    }
+    return path;
 }
 
 QString ConfigService::secretsStorageDescription() const {
@@ -66,12 +74,7 @@ QString ConfigService::expandPath(const QString &path) const {
 
 void ConfigService::ensureDefaults() {
     if (m_libraryPaths.isEmpty()) {
-        const QString opusLib = QDir::homePath() + QStringLiteral("/Music/opusnew");
-        if (QDir(opusLib).exists()) {
-            m_libraryPaths = {QStringLiteral("~/Music/opusnew")};
-        } else {
-            m_libraryPaths = {QStringLiteral("~/Music")};
-        }
+        m_libraryPaths = {QStringLiteral("~/Music")};
     }
     if (m_uiFontFamily.isEmpty()) {
         m_uiFontFamily = QStringLiteral("JetBrainsMono Nerd Font");
@@ -145,6 +148,15 @@ void ConfigService::load() {
             } else if (key == QLatin1String("import_inbox")) {
                 m_importInbox = unquote(value);
             }
+        } else if (section == QLatin1String("import")) {
+            if (key == QLatin1String("opus_bitrate_kbps")) {
+                m_opusBitrateKbps = qBound(48, value.toInt(), 512);
+            } else if (key == QLatin1String("mode")) {
+                const QString mode = unquote(value).trimmed().toLower();
+                if (mode == QLatin1String("convert_opus") || mode == QLatin1String("copy")) {
+                    m_importMode = mode;
+                }
+            }
         } else if (section == QLatin1String("playlists")) {
             if (key == QLatin1String("dir")) {
                 m_playlistsDir = unquote(value);
@@ -159,6 +171,8 @@ void ConfigService::load() {
             } else if (key == QLatin1String("dac_passthrough")) {
                 m_playback.dacPassthrough =
                     value == QLatin1String("true") || value == QLatin1String("1");
+            } else if (key == QLatin1String("audio_device")) {
+                m_playback.audioDevice = unquote(value);
             }
         } else if (section == QLatin1String("beets")) {
             if (key == QLatin1String("binary")) {
@@ -257,6 +271,10 @@ void ConfigService::save() {
     }
     out << "\n";
 
+    out << "[import]\n";
+    out << "mode = \"" << m_importMode << "\"\n";
+    out << "opus_bitrate_kbps = " << m_opusBitrateKbps << "\n\n";
+
     out << "[playlists]\n";
     out << "dir = \"" << m_playlistsDir << "\"\n\n";
 
@@ -264,7 +282,11 @@ void ConfigService::save() {
     out << "volume = " << m_playback.volume << "\n";
     out << "seek_step_secs = " << m_playback.seekStepSecs << "\n";
     out << "lyrics_offset_ms = " << m_playback.lyricsOffsetMs << "\n";
-    out << "dac_passthrough = " << (m_playback.dacPassthrough ? "true" : "false") << "\n\n";
+    out << "dac_passthrough = " << (m_playback.dacPassthrough ? "true" : "false") << "\n";
+    if (!m_playback.audioDevice.isEmpty()) {
+        out << "audio_device = \"" << m_playback.audioDevice << "\"\n";
+    }
+    out << "\n";
 
     out << "[beets]\n";
     out << "binary = \"" << m_beetsBinary << "\"\n";
@@ -375,6 +397,15 @@ void ConfigService::setDacPassthrough(bool enabled) {
     save();
 }
 
+void ConfigService::setAudioDevice(const QString &name) {
+    if (m_playback.audioDevice == name) {
+        return;
+    }
+    m_playback.audioDevice = name;
+    emit configChanged();
+    save();
+}
+
 void ConfigService::setLyricsFetchIntervalSecs(int secs) {
     secs = qBound(1, secs, 60);
     if (m_lyrics.fetchIntervalSecs == secs) {
@@ -439,6 +470,27 @@ void ConfigService::setImportInbox(const QString &path) {
         return;
     }
     m_importInbox = trimmed;
+    emit configChanged();
+}
+
+void ConfigService::setImportMode(const QString &mode) {
+    const QString normalized = mode.trimmed().toLower();
+    const QString resolved = (normalized == QLatin1String("convert_opus"))
+                                 ? QStringLiteral("convert_opus")
+                                 : QStringLiteral("copy");
+    if (m_importMode == resolved) {
+        return;
+    }
+    m_importMode = resolved;
+    emit configChanged();
+}
+
+void ConfigService::setOpusBitrateKbps(int kbps) {
+    kbps = qBound(48, kbps, 512);
+    if (m_opusBitrateKbps == kbps) {
+        return;
+    }
+    m_opusBitrateKbps = kbps;
     emit configChanged();
 }
 

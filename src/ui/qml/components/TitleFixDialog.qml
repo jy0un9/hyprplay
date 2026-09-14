@@ -4,8 +4,8 @@ import QtQuick.Controls.Material
 import QtQuick.Layouts
 
 Dialog {
-    id: tagFetchDialog
-    title: "Lookup metadata"
+    id: titleFixDialog
+    title: "Title Fix"
     modal: true
     Overlay.modal: ThemedModalScrim {}
     parent: Overlay.overlay
@@ -25,20 +25,20 @@ Dialog {
         border.width: 1
     }
 
-    onClosed: App.closeTagFetch()
+    onClosed: App.closeTitleFix()
 
     property string selectedEdition: ""
     property bool filtersExpanded: true
 
     function syncSearchFields() {
-        const fields = App.metadataSearch.currentFields || {}
-        artistField.text = fields.artist || App.selectedArtist || ""
-        albumField.text = fields.album || App.selectedAlbum || ""
+        artistField.text = App.selectedArtist
+        albumField.text = App.selectedAlbum
         formatCd.checked = true
         formatVinyl.checked = false
         formatCassette.checked = false
         formatDigital.checked = true
         selectedEdition = ""
+        // Start with filters open; collapse once track changes appear so the list can breathe.
         filtersExpanded = true
     }
 
@@ -51,14 +51,14 @@ Dialog {
         return list
     }
 
-    function toggleEdition(label) {
-        selectedEdition = (selectedEdition === label) ? "" : label
-    }
-
     function runSearch() {
         App.metadataSearch.searchRelease(artistField.text, albumField.text, "",
-                                         tagFetchDialog.selectedFormats(),
-                                         tagFetchDialog.selectedEdition)
+                                         titleFixDialog.selectedFormats(),
+                                         titleFixDialog.selectedEdition)
+    }
+
+    function toggleEdition(label) {
+        selectedEdition = (selectedEdition === label) ? "" : label
     }
 
     function trackBadgeText(row) {
@@ -81,22 +81,22 @@ Dialog {
 
     Connections {
         target: App
-        function onTagFetchChanged() {
-            if (App.tagFetchOpen) {
-                if (!tagFetchDialog.visible)
-                    tagFetchDialog.syncSearchFields()
-                tagFetchDialog.open()
+        function onTitleFixChanged() {
+            if (App.titleFixOpen) {
+                if (!titleFixDialog.visible)
+                    titleFixDialog.syncSearchFields()
+                titleFixDialog.open()
             } else {
-                tagFetchDialog.close()
+                titleFixDialog.close()
             }
         }
     }
 
     Connections {
         target: App.metadataSearch
-        function onFieldChoicesChanged() {
-            if (App.metadataSearch.fieldChoices.length > 0)
-                tagFetchDialog.filtersExpanded = false
+        function onTitleFixProposalsChanged() {
+            if (App.metadataSearch.titleFixProposals.length > 0)
+                titleFixDialog.filtersExpanded = false
         }
     }
 
@@ -104,7 +104,7 @@ Dialog {
         Button {
             text: "Cancel"
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
-            onClicked: tagFetchDialog.reject()
+            onClicked: titleFixDialog.reject()
         }
         CheckBox {
             id: syncBeetsField
@@ -114,9 +114,9 @@ Dialog {
             anchors.verticalCenter: parent.verticalCenter
         }
         PrimaryButton {
-            text: "Apply selected tags"
-            enabled: App.metadataSearch.fieldChoices.length > 0 && !App.metadataSearch.searching
-            onClicked: App.applyTagFetch(syncBeetsField.checked)
+            text: "Apply title fixes"
+            enabled: App.metadataSearch.titleFixProposals.length > 0 && !App.metadataSearch.searching
+            onClicked: App.applyTitleFix(syncBeetsField.checked)
         }
     }
 
@@ -124,6 +124,7 @@ Dialog {
         spacing: 6
         clip: true
 
+        // Compact album + search row
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
@@ -133,8 +134,7 @@ Dialog {
                 spacing: 0
                 Label {
                     Layout.fillWidth: true
-                    text: (artistField.text || App.selectedArtist || "Artist")
-                          + " — " + (albumField.text || App.selectedAlbum || "Album")
+                    text: App.selectedArtist + " — " + App.selectedAlbum
                     font.bold: true
                     elide: Text.ElideRight
                 }
@@ -142,7 +142,7 @@ Dialog {
                     Layout.fillWidth: true
                     text: App.metadataSearch.localTrackCount > 0
                           ? (App.metadataSearch.localTrackCount + " tracks in library · closest track counts rank first")
-                          : "Search MusicBrainz + Discogs, then review tags below"
+                          : "Pick a release, then review title changes below"
                     opacity: 0.65
                     font.pixelSize: Theme.fontCaption
                     elide: Text.ElideRight
@@ -150,16 +150,17 @@ Dialog {
             }
 
             Button {
-                text: tagFetchDialog.filtersExpanded ? "Hide filters" : "Show filters"
+                text: titleFixDialog.filtersExpanded ? "Hide filters" : "Show filters"
                 flat: true
-                onClicked: tagFetchDialog.filtersExpanded = !tagFetchDialog.filtersExpanded
+                onClicked: titleFixDialog.filtersExpanded = !titleFixDialog.filtersExpanded
             }
         }
 
+        // Collapsible filters — frees vertical space for track changes
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 6
-            visible: tagFetchDialog.filtersExpanded
+            visible: titleFixDialog.filtersExpanded
 
             RowLayout {
                 Layout.fillWidth: true
@@ -169,22 +170,22 @@ Dialog {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     placeholderText: "Artist"
-                    onAccepted: tagFetchDialog.runSearch()
+                    onAccepted: titleFixDialog.runSearch()
                 }
                 TextField {
                     id: albumField
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1.4
                     placeholderText: "Album / release title"
-                    onAccepted: tagFetchDialog.runSearch()
+                    onAccepted: titleFixDialog.runSearch()
                 }
                 Button {
                     text: "Search"
                     enabled: !App.metadataSearch.searching
                              && (artistField.text.trim().length > 0
                                  || albumField.text.trim().length > 0
-                                 || tagFetchDialog.selectedEdition.length > 0)
-                    onClicked: tagFetchDialog.runSearch()
+                                 || titleFixDialog.selectedEdition.length > 0)
+                    onClicked: titleFixDialog.runSearch()
                 }
             }
 
@@ -205,11 +206,11 @@ Dialog {
                     delegate: Button {
                         text: modelData
                         checkable: true
-                        checked: tagFetchDialog.selectedEdition === modelData
+                        checked: titleFixDialog.selectedEdition === modelData
                         flat: true
                         font.pixelSize: Theme.fontCaption
                         implicitHeight: 28
-                        onClicked: tagFetchDialog.toggleEdition(modelData)
+                        onClicked: titleFixDialog.toggleEdition(modelData)
                     }
                 }
             }
@@ -218,6 +219,7 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
+            visible: !titleFixDialog.filtersExpanded
             Label {
                 Layout.fillWidth: true
                 text: App.metadataSearch.status
@@ -228,11 +230,10 @@ Dialog {
             Button {
                 text: "Search again"
                 flat: true
-                visible: !tagFetchDialog.filtersExpanded
                 enabled: !App.metadataSearch.searching
                 onClicked: {
-                    tagFetchDialog.filtersExpanded = true
-                    tagFetchDialog.runSearch()
+                    titleFixDialog.filtersExpanded = true
+                    titleFixDialog.runSearch()
                 }
             }
             BusyIndicator {
@@ -243,6 +244,26 @@ Dialog {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            visible: titleFixDialog.filtersExpanded
+            Label {
+                Layout.fillWidth: true
+                text: App.metadataSearch.status
+                opacity: 0.7
+                elide: Text.ElideRight
+                font.pixelSize: Theme.fontCaption
+            }
+            BusyIndicator {
+                running: App.metadataSearch.searching
+                visible: running
+                implicitWidth: 20
+                implicitHeight: 20
+            }
+        }
+
+        // Vertical split: compact release picker on top, big track-changes pane below
         SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -322,16 +343,16 @@ Dialog {
                                 spacing: 6
 
                                 Label {
-                                    visible: tagFetchDialog.trackDeltaText(modelData).length > 0
-                                    text: tagFetchDialog.trackDeltaText(modelData)
+                                    visible: titleFixDialog.trackDeltaText(modelData).length > 0
+                                    text: titleFixDialog.trackDeltaText(modelData)
                                     font.pixelSize: Theme.fontCaption
                                     opacity: 0.75
-                                    color: tagFetchDialog.trackDeltaText(modelData) === "exact"
+                                    color: titleFixDialog.trackDeltaText(modelData) === "exact"
                                            ? Theme.accent : Theme.foreground
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
                                 Rectangle {
-                                    visible: tagFetchDialog.trackBadgeText(modelData).length > 0
+                                    visible: titleFixDialog.trackBadgeText(modelData).length > 0
                                     radius: 8
                                     color: Theme.rgba(Theme.accent, 0.15)
                                     width: Math.max(40, trackLbl.implicitWidth + 12)
@@ -339,13 +360,23 @@ Dialog {
                                     Label {
                                         id: trackLbl
                                         anchors.centerIn: parent
-                                        text: tagFetchDialog.trackBadgeText(modelData)
+                                        text: titleFixDialog.trackBadgeText(modelData)
                                         font.pixelSize: Theme.fontCaption
                                         color: Theme.accent
                                     }
                                 }
                             }
                         }
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: !App.metadataSearch.searching && candidateList.count === 0
+                        opacity: 0.55
+                        width: parent.width - 24
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: "No matching releases — show filters and try Digital + Deluxe/Expanded"
                     }
                 }
             }
@@ -355,21 +386,30 @@ Dialog {
                 SplitView.minimumHeight: 260
                 spacing: 6
 
-                Label {
-                    text: App.metadataSearch.fieldChoices.length > 0
-                          ? ("Tags to apply (" + App.metadataSearch.fieldChoices.length + ")")
-                          : "Tags to apply"
-                    font.bold: true
-                    font.pixelSize: Theme.fontSmall + 1
+                RowLayout {
                     Layout.fillWidth: true
+                    Label {
+                        text: App.metadataSearch.titleFixProposals.length > 0
+                              ? ("Title changes (" + App.metadataSearch.titleFixProposals.length + ")")
+                              : "Title changes"
+                        font.bold: true
+                        font.pixelSize: Theme.fontSmall + 1
+                        Layout.fillWidth: true
+                    }
+                    Label {
+                        visible: App.metadataSearch.titleFixUnmatched.length > 0
+                        text: App.metadataSearch.titleFixUnmatched.length + " unmatched"
+                        opacity: 0.6
+                        font.pixelSize: Theme.fontCaption
+                    }
                 }
 
                 ListView {
-                    id: fieldList
+                    id: proposalList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
-                    model: App.metadataSearch.fieldChoices
+                    model: App.metadataSearch.titleFixProposals
                     visible: count > 0
                     boundsBehavior: Flickable.StopAtBounds
                     spacing: 4
@@ -379,30 +419,29 @@ Dialog {
                     }
 
                     delegate: Rectangle {
-                        id: fieldRow
-                        width: fieldList.width - 12
-                        height: Math.max(64, fieldInner.implicitHeight + 16)
+                        id: proposalRow
+                        width: proposalList.width - 12
+                        height: Math.max(64, proposalInner.implicitHeight + 16)
                         radius: Theme.radiusSm
-                        color: fieldChoice.checked ? Theme.rgba(Theme.accent, 0.10)
+                        color: proposalBox.checked ? Theme.rgba(Theme.accent, 0.10)
                                                    : Theme.rgba(Theme.foreground, 0.04)
                         border.color: Theme.rgba(Theme.border, 0.25)
                         border.width: 1
 
                         CheckBox {
-                            id: fieldChoice
+                            id: proposalBox
                             anchors.left: parent.left
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             anchors.leftMargin: 6
                             width: 36
-                            property string fieldKey: modelData.key || ""
                             checked: modelData.checked === true
-                            onClicked: App.metadataSearch.setFieldChecked(fieldKey, checked)
+                            onClicked: App.metadataSearch.setTitleFixChecked(index, checked)
                         }
 
                         ColumnLayout {
-                            id: fieldInner
-                            anchors.left: fieldChoice.right
+                            id: proposalInner
+                            anchors.left: proposalBox.right
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.leftMargin: 4
@@ -411,21 +450,17 @@ Dialog {
 
                             Label {
                                 Layout.fillWidth: true
-                                text: modelData.label || fieldChoice.fieldKey
-                                font.bold: true
-                                wrapMode: Text.Wrap
-                            }
-                            Label {
-                                Layout.fillWidth: true
-                                text: "\"" + (modelData.current || "") + "\""
-                                opacity: 0.6
+                                text: (modelData.trackNumber > 0 ? ("#" + modelData.trackNumber + "  ") : "")
+                                      + (modelData.current || "")
+                                opacity: 0.65
                                 wrapMode: Text.Wrap
                                 font.pixelSize: Theme.fontSmall
                             }
                             Label {
                                 Layout.fillWidth: true
-                                text: "→  \"" + (modelData.proposed || "") + "\""
+                                text: "→  " + (modelData.proposed || "")
                                 wrapMode: Text.Wrap
+                                font.bold: true
                                 font.pixelSize: Theme.fontSmall + 1
                             }
                         }
@@ -434,8 +469,7 @@ Dialog {
                             anchors.fill: parent
                             anchors.leftMargin: 42
                             acceptedButtons: Qt.LeftButton
-                            onClicked: App.metadataSearch.setFieldChecked(
-                                           fieldChoice.fieldKey, !fieldChoice.checked)
+                            onClicked: App.metadataSearch.setTitleFixChecked(index, !proposalBox.checked)
                         }
                     }
                 }
@@ -443,12 +477,36 @@ Dialog {
                 Label {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    text: "Select a release above to compare tags in this large pane."
-                    opacity: 0.5
-                    visible: App.metadataSearch.fieldChoices.length === 0 && !App.metadataSearch.searching
+                    visible: App.metadataSearch.titleFixProposals.length === 0
+                    opacity: 0.55
                     wrapMode: Text.WordWrap
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
+                    text: App.metadataSearch.searching
+                          ? "Searching…"
+                          : (App.metadataSearch.candidates.length === 0
+                             ? "Search for a release to begin"
+                             : "Select a release above with a matching track count.\nTitle changes will fill this large pane.")
+                }
+
+                ListView {
+                    id: unmatchedList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(72, contentHeight)
+                    clip: true
+                    visible: App.metadataSearch.titleFixUnmatched.length > 0
+                    model: App.metadataSearch.titleFixUnmatched
+                    spacing: 2
+                    delegate: Label {
+                        width: unmatchedList.width
+                        height: 22
+                        opacity: 0.65
+                        text: "Unmatched: "
+                              + (modelData.trackNumber > 0 ? ("#" + modelData.trackNumber + "  ") : "")
+                              + (modelData.title || "")
+                        elide: Text.ElideRight
+                        font.pixelSize: Theme.fontCaption
+                    }
                 }
             }
         }

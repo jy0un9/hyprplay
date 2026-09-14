@@ -37,3 +37,12 @@ jobs:
       - name: Offscreen QML smoke
         run: |
           QT_QPA_PLATFORM=offscreen timeout 5 ./qt-music-bin || test $? -eq 124
+      - name: Validate desktop entry
+        run: |
+          sudo apt-get install -y desktop-file-utils
+          desktop-file-validate desktop/qt-music.desktop
+      - name: Validate AppStream (structure)
+        run: |
+          sudo apt-get install -y appstream
+          # URLs may 404 until the GitHub release exists; treat as soft check.
+          appstreamcli validate desktop/org.jy0un9.qt-music.metainfo.xml || true

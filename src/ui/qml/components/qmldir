@@ -1,4 +1,5 @@
 module components
+AppIcon 1.0 AppIcon.qml
 AppListDelegate 1.0 AppListDelegate.qml
 NavButton 1.0 NavButton.qml
 SectionLabel 1.0 SectionLabel.qml
@@ -7,3 +8,8 @@ PrimaryButton 1.0 PrimaryButton.qml
 SplitHandle 1.0 SplitHandle.qml
 EmptyState 1.0 EmptyState.qml
 Snackbar 1.0 Snackbar.qml
+ThemedModalScrim 1.0 ThemedModalScrim.qml
+AdaptiveMenu 1.0 AdaptiveMenu.qml
+ThemedMenuItem 1.0 ThemedMenuItem.qml
+ElisionPopup 1.0 ElisionPopup.qml
+SettingsNavItem 1.0 SettingsNavItem.qml

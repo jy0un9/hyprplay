@@ -12,7 +12,7 @@
 
 namespace {
 
-constexpr auto kSchemaName = "ai.commandcode.qt-music.Token";
+constexpr auto kSchemaName = "org.jy0un9.qt-music.Token";
 
 const SecretSchema *tokenSchema() {
     static SecretSchema schema = {};
@@ -93,7 +93,15 @@ QString clearSectionToken(QString content, const QString &section) {
 QString SecretsStore::filePath() {
     const QString appDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
     QDir().mkpath(appDir);
-    return appDir + QStringLiteral("/secrets.toml");
+    const QString path = appDir + QStringLiteral("/secrets.toml");
+    if (!QFile::exists(path)) {
+        const QString legacyNested =
+            QDir::homePath() + QStringLiteral("/.config/qt-music/qt-music/secrets.toml");
+        if (QFile::exists(legacyNested)) {
+            QFile::copy(legacyNested, path);
+        }
+    }
+    return path;
 }
 
 QString SecretsStore::sectionName(Key key) {

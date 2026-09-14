@@ -11,10 +11,13 @@
         <file alias="components/KaraokeLyricsView.qml">../src/ui/qml/components/KaraokeLyricsView.qml</file>
         <file alias="components/NowPlayingPanel.qml">../src/ui/qml/components/NowPlayingPanel.qml</file>
         <file alias="components/ArtistPanel.qml">../src/ui/qml/components/ArtistPanel.qml</file>
+        <file alias="components/ElisionPopup.qml">../src/ui/qml/components/ElisionPopup.qml</file>
         <file alias="components/AlbumPanel.qml">../src/ui/qml/components/AlbumPanel.qml</file>
         <file alias="components/DiscogsAlbumDialog.qml">../src/ui/qml/components/DiscogsAlbumDialog.qml</file>
         <file alias="components/TagEditorDialog.qml">../src/ui/qml/components/TagEditorDialog.qml</file>
         <file alias="components/TagFetchDialog.qml">../src/ui/qml/components/TagFetchDialog.qml</file>
+        <file alias="components/TitleFixDialog.qml">../src/ui/qml/components/TitleFixDialog.qml</file>
+        <file alias="components/EnrichmentResolveDialog.qml">../src/ui/qml/components/EnrichmentResolveDialog.qml</file>
         <file alias="components/AppIcon.qml">../src/ui/qml/components/AppIcon.qml</file>
         <file alias="components/IconToolButton.qml">../src/ui/qml/components/IconToolButton.qml</file>
         <file alias="components/NavIconButton.qml">../src/ui/qml/components/NavIconButton.qml</file>
@@ -27,5 +30,9 @@
         <file alias="components/PrimaryButton.qml">../src/ui/qml/components/PrimaryButton.qml</file>
         <file alias="components/EmptyState.qml">../src/ui/qml/components/EmptyState.qml</file>
         <file alias="components/Snackbar.qml">../src/ui/qml/components/Snackbar.qml</file>
+        <file alias="components/ThemedModalScrim.qml">../src/ui/qml/components/ThemedModalScrim.qml</file>
+        <file alias="components/AdaptiveMenu.qml">../src/ui/qml/components/AdaptiveMenu.qml</file>
+        <file alias="components/ThemedMenuItem.qml">../src/ui/qml/components/ThemedMenuItem.qml</file>
+        <file alias="components/SettingsNavItem.qml">../src/ui/qml/components/SettingsNavItem.qml</file>
     </qresource>
 </RCC>

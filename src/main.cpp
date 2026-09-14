@@ -148,7 +148,8 @@ int main(int argc, char *argv[]) {
     setlocale(LC_NUMERIC, "C");
 
     QGuiApplication::setApplicationName(QStringLiteral("qt-music"));
-    QGuiApplication::setOrganizationName(QStringLiteral("qt-music"));
+    QGuiApplication::setOrganizationName(QString());
+    QGuiApplication::setOrganizationDomain(QStringLiteral("jy0un9.org"));
     QGuiApplication::setDesktopFileName(QStringLiteral("qt-music"));
     QGuiApplication::setApplicationVersion(QString::fromLatin1(kAppVersion));
     app.setWindowIcon(QIcon(QStringLiteral(":/qt-music.svg")));

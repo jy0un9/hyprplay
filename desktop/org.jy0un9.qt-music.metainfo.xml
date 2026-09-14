@@ -1,17 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>ai.commandcode.qt-music</id>
+  <id>org.jy0un9.qt-music</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Qt Music</name>
-  <summary>Local FLAC and Opus music player</summary>
+  <summary>Local FLAC, Opus, MP3, and M4A music player</summary>
   <description>
     <p>
-      A native Qt 6 desktop music player for local FLAC and Opus libraries,
+      A native Qt 6 desktop music player for local libraries on Linux,
       with a library browser, libmpv playback, playlists, tag editing,
-      import inbox, synced lyrics, Discogs metadata, and MPRIS2 integration.
+      import inbox, synced lyrics, Discogs metadata, Omarchy theme sync,
+      and MPRIS2 integration.
     </p>
   </description>
+  <url type="homepage">https://github.com/jy0un9/qt-music</url>
+  <url type="bugtracker">https://github.com/jy0un9/qt-music/issues</url>
+  <developer id="org.jy0un9">
+    <name>jy0un9</name>
+  </developer>
   <launchable type="desktop-id">qt-music.desktop</launchable>
   <icon type="stock">qt-music</icon>
   <categories>
@@ -24,13 +30,22 @@
     <keyword>audio</keyword>
     <keyword>flac</keyword>
     <keyword>opus</keyword>
+    <keyword>mp3</keyword>
+    <keyword>m4a</keyword>
     <keyword>player</keyword>
     <keyword>library</keyword>
   </keywords>
+  <content_rating type="oars-1.1"/>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Library browse view with now-playing bar</caption>
+      <image>https://raw.githubusercontent.com/jy0un9/qt-music/main/docs/assets/screenshot.png</image>
+    </screenshot>
+  </screenshots>
   <provides>
     <dbus type="session">org.mpris.MediaPlayer2.qt-music</dbus>
   </provides>
   <releases>
-    <release version="0.1.0" date="2026-09-05"/>
+    <release version="0.1.0" date="2026-09-14"/>
   </releases>
 </component>

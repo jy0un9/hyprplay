@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSet>
 #include <QTextStream>
 #include <QVector>
 
@@ -24,6 +25,20 @@ QVariantMap unresolvedEntry(const M3uEntry &parsed) {
     row.insert(QStringLiteral("resolved"), false);
     row.insert(QStringLiteral("sourcePath"), parsed.sourcePath);
     return row;
+}
+
+QString trackIdentity(const QVariantMap &track) {
+    const QString path = track.value(QStringLiteral("path")).toString();
+    if (!path.isEmpty()) {
+        const QFileInfo info(path);
+        const QString canonical = info.canonicalFilePath();
+        return QStringLiteral("file:")
+               + QDir::cleanPath(canonical.isEmpty() ? info.absoluteFilePath() : canonical);
+    }
+
+    const QString sourcePath = track.value(QStringLiteral("sourcePath")).toString();
+    return sourcePath.isEmpty() ? QString()
+                                : QStringLiteral("source:") + QDir::cleanPath(sourcePath);
 }
 
 } // namespace
@@ -368,6 +383,7 @@ bool PlaylistService::addTrackToPlaylist(const QString &playlistName, const QVar
 }
 
 int PlaylistService::addTracksToPlaylist(const QString &playlistName, const QVariantList &tracks) {
+    m_lastDuplicateSkipCount = 0;
     if (playlistName.isEmpty() || tracks.isEmpty()) {
         return 0;
     }
@@ -384,6 +400,14 @@ int PlaylistService::addTracksToPlaylist(const QString &playlistName, const QVar
         }
     }
 
+    QSet<QString> existingTracks;
+    for (const QVariant &item : playlist.entries) {
+        const QString identity = trackIdentity(item.toMap());
+        if (!identity.isEmpty()) {
+            existingTracks.insert(identity);
+        }
+    }
+
     int added = 0;
     for (const QVariant &item : tracks) {
         const QVariantMap track = item.toMap();
@@ -394,11 +418,26 @@ int PlaylistService::addTracksToPlaylist(const QString &playlistName, const QVar
         QVariantMap entry = track;
         entry.insert(QStringLiteral("resolved"), true);
         entry.insert(QStringLiteral("sourcePath"), relativeTrackPath(path, roots));
+        const QString identity = trackIdentity(entry);
+        if (!identity.isEmpty() && existingTracks.contains(identity)) {
+            ++m_lastDuplicateSkipCount;
+            continue;
+        }
         playlist.entries << entry;
+        if (!identity.isEmpty()) {
+            existingTracks.insert(identity);
+        }
         ++added;
     }
 
     if (added == 0) {
+        if (m_lastDuplicateSkipCount > 0) {
+            setStatus(m_lastDuplicateSkipCount == 1
+                          ? QStringLiteral("Track is already in \"%1\"").arg(playlistName)
+                          : QStringLiteral("%1 tracks are already in \"%2\"")
+                                .arg(m_lastDuplicateSkipCount)
+                                .arg(playlistName));
+        }
         return 0;
     }
 
@@ -413,7 +452,15 @@ int PlaylistService::addTracksToPlaylist(const QString &playlistName, const QVar
         emit playlistTracksChanged();
     }
     emit playlistsChanged();
-    setStatus(added == 1 ? QStringLiteral("Added track to \"%1\"").arg(playlistName)
-                         : QStringLiteral("Added %1 tracks to \"%2\"").arg(added).arg(playlistName));
+    if (m_lastDuplicateSkipCount > 0) {
+        setStatus(QStringLiteral("Added %1 track(s) to \"%2\"; skipped %3 duplicate(s)")
+                      .arg(added)
+                      .arg(playlistName)
+                      .arg(m_lastDuplicateSkipCount));
+    } else {
+        setStatus(added == 1
+                      ? QStringLiteral("Added track to \"%1\"").arg(playlistName)
+                      : QStringLiteral("Added %1 tracks to \"%2\"").arg(added).arg(playlistName));
+    }
     return added;
 }

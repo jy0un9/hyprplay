@@ -5,7 +5,6 @@ import QtQuick.Layouts
 Pane {
     id: card
 
-    property alias contentItem: layout.data
     default property alias children: layout.data
     property int cardPadding: Theme.spaceMd
     property bool elevated: false

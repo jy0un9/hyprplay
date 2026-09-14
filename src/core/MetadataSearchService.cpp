@@ -9,6 +9,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
+#include <QVector>
 #include <QUrl>
 #include <QUrlQuery>
 #include <algorithm>
@@ -16,7 +18,7 @@
 namespace {
 
 constexpr char kMbUserAgent[] =
-    "qt-music/0.1 ( https://musicbrainz.org/doc/MusicBrainz_API )";
+    "qt-music/0.1.0 ( https://github.com/jy0un9/qt-music )";
 
 bool isUsableName(const QString &name) {
     const QString trimmed = name.trimmed();
@@ -73,21 +75,75 @@ QString splitDiscogsArtist(const QString &rawTitle, const QString &fallbackArtis
     return fallbackArtist.trimmed();
 }
 
-int albumMatchScore(const QVariantMap &candidate, const QString &album, const QString &artist) {
+int albumMatchScore(const QVariantMap &candidate, const QString &album, const QString &artist,
+                    const QString &edition = {}, int localTrackCount = 0) {
     const QString title = candidate.value(QStringLiteral("title")).toString();
     const QString detail = candidate.value(QStringLiteral("detail")).toString();
+    const QString titleLower = title.toLower();
+    const QString detailLower = detail.toLower();
+    const QString albumLower = album.toLower();
+    const QString editionLower = edition.trimmed().toLower();
     int score = 0;
     if (!album.isEmpty()) {
         if (title.compare(album, Qt::CaseInsensitive) == 0) {
             score += 1000;
-        } else if (title.toLower().contains(album.toLower())) {
+        } else if (titleLower.contains(albumLower)) {
             score += 400;
         }
     }
     if (!artist.isEmpty()) {
-        if (detail.toLower().contains(artist.toLower())
+        if (detailLower.contains(artist.toLower())
             || title.compare(artist, Qt::CaseInsensitive) == 0) {
             score += 800;
+        }
+    }
+    if (!editionLower.isEmpty()) {
+        const QStringList tokens =
+            editionLower.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        for (const QString &token : tokens) {
+            if (token.size() < 3) {
+                continue;
+            }
+            if (titleLower.contains(token) || detailLower.contains(token)) {
+                score += 250;
+            }
+        }
+    } else {
+        static const QStringList editionWords = {
+            QStringLiteral("deluxe"),      QStringLiteral("expanded"),
+            QStringLiteral("anniversary"), QStringLiteral("remaster"),
+            QStringLiteral("special"),     QStringLiteral("explicit"),
+            QStringLiteral("extended"),    QStringLiteral("bonus")};
+        for (const QString &word : editionWords) {
+            const bool want = albumLower.contains(word);
+            const bool have = titleLower.contains(word) || detailLower.contains(word);
+            if (want && have) {
+                score += 300;
+            } else if (!want && have) {
+                score -= 40;
+            }
+        }
+    }
+
+    int remoteTracks = candidate.value(QStringLiteral("trackCount")).toInt();
+    if (remoteTracks <= 0) {
+        remoteTracks = candidate.value(QStringLiteral("fields")).toMap()
+                           .value(QStringLiteral("trackCount")).toInt();
+    }
+    if (localTrackCount > 0 && remoteTracks > 0) {
+        const int delta = qAbs(remoteTracks - localTrackCount);
+        if (delta == 0) {
+            score += 2000;
+        } else if (delta == 1) {
+            score += 1200;
+        } else if (delta == 2) {
+            score += 700;
+        } else if (delta <= 4) {
+            score += 300;
+        } else if (delta <= 8) {
+            score -= 100;
+        } else {
+            score -= 400;
         }
     }
     return score;
@@ -108,7 +164,31 @@ QVariantMap candidateRow(const QString &source, const QString &id, const QString
     return row;
 }
 
-QUrl musicBrainzSearchUrl(const QString &artist, const QString &album) {
+QString musicBrainzFormatClause(const QStringList &formats) {
+    QStringList clauses;
+    for (const QString &raw : formats) {
+        const QString format = raw.trimmed().toLower();
+        if (format == QLatin1String("cd")) {
+            clauses << QStringLiteral("format:CD");
+        } else if (format == QLatin1String("vinyl")) {
+            clauses << QStringLiteral("format:Vinyl");
+        } else if (format == QLatin1String("cassette") || format == QLatin1String("tape")) {
+            clauses << QStringLiteral("format:Cassette");
+        } else if (format == QLatin1String("digital")) {
+            clauses << QStringLiteral("format:\"Digital Media\"");
+        }
+    }
+    if (clauses.isEmpty()) {
+        return {};
+    }
+    if (clauses.size() == 1) {
+        return clauses.first();
+    }
+    return QLatin1Char('(') + clauses.join(QStringLiteral(" OR ")) + QLatin1Char(')');
+}
+
+QUrl musicBrainzSearchUrl(const QString &artist, const QString &album,
+                          const QStringList &formats, const QString &edition) {
     QStringList parts;
     if (isUsableName(album)) {
         QString escaped = album;
@@ -120,6 +200,16 @@ QUrl musicBrainzSearchUrl(const QString &artist, const QString &album) {
         parts << QStringLiteral("artist:\"") + escaped.replace(QLatin1Char('"'), QString())
                     + QLatin1Char('"');
     }
+    const QString formatClause = musicBrainzFormatClause(formats);
+    if (!formatClause.isEmpty()) {
+        parts << formatClause;
+    }
+    const QString trimmedEdition = edition.trimmed();
+    if (!trimmedEdition.isEmpty()) {
+        QString escaped = trimmedEdition;
+        escaped.replace(QLatin1Char('"'), QString());
+        parts << QLatin1Char('(') + escaped + QLatin1Char(')');
+    }
     if (parts.isEmpty()) {
         return {};
     }
@@ -128,21 +218,43 @@ QUrl musicBrainzSearchUrl(const QString &artist, const QString &album) {
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("query"), parts.join(QStringLiteral(" AND ")));
     query.addQueryItem(QStringLiteral("fmt"), QStringLiteral("json"));
-    query.addQueryItem(QStringLiteral("limit"), QStringLiteral("10"));
+    query.addQueryItem(QStringLiteral("limit"), QStringLiteral("25"));
     url.setQuery(query);
     return url;
 }
 
-QUrl discogsSearchUrl(const QString &artist, const QString &album) {
-    QUrl url(QStringLiteral("https://api.discogs.com/database/search"));
-    QUrlQuery query;
-    query.addQueryItem(QStringLiteral("type"), QStringLiteral("release"));
-    query.addQueryItem(QStringLiteral("per_page"), QStringLiteral("8"));
+QUrl discogsSearchUrl(const QString &artist, const QString &album,
+                      const QStringList &formats, const QString &edition) {
+    QStringList parts;
     if (isUsableName(artist)) {
-        query.addQueryItem(QStringLiteral("artist"), artist);
+        parts << artist;
     }
     if (isUsableName(album)) {
-        query.addQueryItem(QStringLiteral("release_title"), album);
+        parts << album;
+    }
+    if (!edition.trimmed().isEmpty()) {
+        parts << edition.trimmed();
+    }
+    if (parts.isEmpty()) {
+        return {};
+    }
+
+    QUrl url(QStringLiteral("https://api.discogs.com/database/search"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("q"), parts.join(QLatin1Char(' ')));
+    query.addQueryItem(QStringLiteral("type"), QStringLiteral("release"));
+    query.addQueryItem(QStringLiteral("per_page"), QStringLiteral("50"));
+    if (formats.size() == 1) {
+        const QString format = formats.first().trimmed().toLower();
+        if (format == QLatin1String("cd")) {
+            query.addQueryItem(QStringLiteral("format"), QStringLiteral("CD"));
+        } else if (format == QLatin1String("vinyl")) {
+            query.addQueryItem(QStringLiteral("format"), QStringLiteral("Vinyl"));
+        } else if (format == QLatin1String("cassette") || format == QLatin1String("tape")) {
+            query.addQueryItem(QStringLiteral("format"), QStringLiteral("Cassette"));
+        } else if (format == QLatin1String("digital")) {
+            query.addQueryItem(QStringLiteral("format"), QStringLiteral("File"));
+        }
     }
     url.setQuery(query);
     return url;
@@ -169,21 +281,102 @@ QVariantList parseMusicBrainzSearch(const QByteArray &body) {
         if (!year.isEmpty()) {
             fields.insert(QStringLiteral("year"), year.toInt());
         }
-        const QString detail =
-            year.isEmpty() ? artistName : artistName + QStringLiteral(" · ") + year;
-        candidates << candidateRow(QStringLiteral("MusicBrainz"), id, title, detail, fields,
-                                   QStringLiteral("https://coverartarchive.org/release/") + id
-                                       + QStringLiteral("/front"));
+
+        QStringList detailParts;
+        if (!artistName.isEmpty()) {
+            detailParts << artistName;
+        }
+        if (!year.isEmpty()) {
+            detailParts << year;
+        }
+        int trackCount = 0;
+        QStringList formats;
+        const QJsonArray media = release.value(QStringLiteral("media")).toArray();
+        for (const QJsonValue &mediumValue : media) {
+            const QJsonObject medium = mediumValue.toObject();
+            const QString format = medium.value(QStringLiteral("format")).toString().trimmed();
+            if (!format.isEmpty() && !formats.contains(format, Qt::CaseInsensitive)) {
+                formats << format;
+            }
+            trackCount += medium.value(QStringLiteral("track-count")).toInt();
+        }
+        if (!formats.isEmpty()) {
+            detailParts << formats.join(QStringLiteral("/"));
+            fields.insert(QStringLiteral("format"), formats.join(QStringLiteral(", ")));
+        }
+        if (trackCount > 0) {
+            detailParts << QStringLiteral("%1 tracks").arg(trackCount);
+            fields.insert(QStringLiteral("trackCount"), trackCount);
+        }
+        const QString country = release.value(QStringLiteral("country")).toString().trimmed();
+        if (!country.isEmpty()) {
+            detailParts << country;
+            fields.insert(QStringLiteral("country"), country);
+        }
+
+        QVariantMap row = candidateRow(QStringLiteral("MusicBrainz"), id, title,
+                                       detailParts.join(QStringLiteral(" · ")), fields,
+                                       QStringLiteral("https://coverartarchive.org/release/") + id
+                                           + QStringLiteral("/front"));
+        if (trackCount > 0) {
+            row.insert(QStringLiteral("trackCount"), trackCount);
+        }
+        if (!formats.isEmpty()) {
+            row.insert(QStringLiteral("format"), formats.join(QStringLiteral(", ")));
+        }
+        candidates << row;
     }
     return candidates;
 }
 
-QVariantList parseDiscogsSearch(const QByteArray &body, const QString &artist) {
+QVariantList parseDiscogsSearch(const QByteArray &body, const QString &artist,
+                                const QStringList &formatFilters = {}) {
     QVariantList candidates;
     const QJsonArray results =
         QJsonDocument::fromJson(body).object().value(QStringLiteral("results")).toArray();
     for (const QJsonValue &value : results) {
         const QJsonObject result = value.toObject();
+        QStringList formats;
+        for (const QJsonValue &format : result.value(QStringLiteral("format")).toArray()) {
+            formats << format.toString();
+        }
+        if (!formatFilters.isEmpty()) {
+            bool matched = false;
+            for (const QString &filter : formatFilters) {
+                const QString needle = filter.trimmed().toLower();
+                for (const QString &raw : formats) {
+                    const QString format = raw.toLower();
+                    if (needle == QLatin1String("cd")
+                        && (format == QLatin1String("cd") || format.contains(QLatin1String("cd")))) {
+                        matched = true;
+                    } else if (needle == QLatin1String("vinyl")
+                               && (format.contains(QLatin1String("vinyl"))
+                                   || format == QLatin1String("lp"))) {
+                        matched = true;
+                    } else if ((needle == QLatin1String("cassette") || needle == QLatin1String("tape"))
+                               && (format.contains(QLatin1String("cassette"))
+                                   || format.contains(QLatin1String("tape")))) {
+                        matched = true;
+                    } else if (needle == QLatin1String("digital")
+                               && (format.contains(QLatin1String("file"))
+                                   || format.contains(QLatin1String("flac"))
+                                   || format.contains(QLatin1String("mp3"))
+                                   || format.contains(QLatin1String("digital")))) {
+                        matched = true;
+                    }
+                    if (matched) {
+                        break;
+                    }
+                }
+                if (matched) {
+                    break;
+                }
+            }
+            if (!matched) {
+                continue;
+            }
+        }
+
         const QString id =
             QString::number(result.value(QStringLiteral("id")).toVariant().toULongLong());
         const QString rawTitle = result.value(QStringLiteral("title")).toString();
@@ -209,11 +402,36 @@ QVariantList parseDiscogsSearch(const QByteArray &body, const QString &artist) {
         if (!genres.isEmpty()) {
             fields.insert(QStringLiteral("genre"), genres.first().toString());
         }
+        if (!formats.isEmpty()) {
+            fields.insert(QStringLiteral("format"), formats.join(QStringLiteral(", ")));
+        }
         const QString coverUrl = result.value(QStringLiteral("cover_image")).toString();
-        const QString detail =
-            year.isEmpty() ? artistName : artistName + QStringLiteral(" · ") + year;
-        candidates << candidateRow(QStringLiteral("Discogs"), id, albumTitle, detail, fields,
-                                   coverUrl);
+        QStringList detailParts;
+        if (!artistName.isEmpty()) {
+            detailParts << artistName;
+        }
+        if (!year.isEmpty()) {
+            detailParts << year;
+        }
+        if (!formats.isEmpty()) {
+            detailParts << formats.join(QStringLiteral("/"));
+        }
+        const QString country = result.value(QStringLiteral("country")).toString().trimmed();
+        if (!country.isEmpty()) {
+            detailParts << country;
+        }
+        QVariantMap row = candidateRow(QStringLiteral("Discogs"), id, albumTitle,
+                                       detailParts.join(QStringLiteral(" · ")), fields, coverUrl);
+        if (!formats.isEmpty()) {
+            row.insert(QStringLiteral("format"), formats.join(QStringLiteral(", ")));
+        }
+        const int mediaCount = result.value(QStringLiteral("format_quantity")).toInt();
+        if (mediaCount > 0) {
+            row.insert(QStringLiteral("mediaCount"), mediaCount);
+            detailParts << QStringLiteral("%1 media").arg(mediaCount);
+            row.insert(QStringLiteral("detail"), detailParts.join(QStringLiteral(" · ")));
+        }
+        candidates << row;
     }
     return candidates;
 }
@@ -310,6 +528,49 @@ bool trackTitleMatches(const QString &candidateTitle, const QString &targetTitle
            || target.contains(candidate, Qt::CaseInsensitive);
 }
 
+QString stripTitleDecorations(QString title) {
+    static const QRegularExpression inner(QStringLiteral("[\\(\\[{][^()\\[\\]{}]*[\\)\\]}]"));
+    QString previous;
+    do {
+        previous = title;
+        title.remove(inner);
+    } while (title != previous);
+    return title.simplified();
+}
+
+QString normalizeTitleForMatch(const QString &title) {
+    QString normalized = stripTitleDecorations(title).toLower();
+    normalized.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N} ]"),
+                                         QRegularExpression::UseUnicodePropertiesOption));
+    return normalized.simplified();
+}
+
+int titleMatchScore(const QString &localTitle, const QString &officialTitle) {
+    const QString local = localTitle.trimmed();
+    const QString official = officialTitle.trimmed();
+    if (local.isEmpty() || official.isEmpty()) {
+        return 0;
+    }
+    if (local.compare(official, Qt::CaseInsensitive) == 0) {
+        return 100;
+    }
+    const QString localNorm = normalizeTitleForMatch(local);
+    const QString officialNorm = normalizeTitleForMatch(official);
+    if (localNorm.isEmpty() || officialNorm.isEmpty()) {
+        return 0;
+    }
+    if (localNorm == officialNorm) {
+        return 95;
+    }
+    if (localNorm.contains(officialNorm) || officialNorm.contains(localNorm)) {
+        return 80;
+    }
+    if (trackTitleMatches(local, official)) {
+        return 70;
+    }
+    return 0;
+}
+
 QVariantMap parseMusicBrainzDetail(const QByteArray &body, const QString &trackTitle) {
     QVariantMap extra;
     const QJsonObject release = QJsonDocument::fromJson(body).object();
@@ -351,29 +612,44 @@ QVariantMap parseMusicBrainzDetail(const QByteArray &body, const QString &trackT
         }
     }
 
-    if (!trackTitle.trimmed().isEmpty()) {
-        const QJsonArray media = release.value(QStringLiteral("media")).toArray();
-        for (const QJsonValue &mediumValue : media) {
-            const QJsonArray tracks =
-                mediumValue.toObject().value(QStringLiteral("tracks")).toArray();
-            for (const QJsonValue &trackValue : tracks) {
-                const QJsonObject track = trackValue.toObject();
-                const QString title = track.value(QStringLiteral("title")).toString();
-                if (!trackTitleMatches(title, trackTitle)) {
-                    continue;
-                }
-                extra.insert(QStringLiteral("title"), title.trimmed());
-                const int trackNumber =
-                    parseTrackNumber(track.value(QStringLiteral("number")).toString());
+    QVariantList tracklist;
+    int absolutePosition = 0;
+    const QJsonArray media = release.value(QStringLiteral("media")).toArray();
+    for (const QJsonValue &mediumValue : media) {
+        const QJsonArray tracks = mediumValue.toObject().value(QStringLiteral("tracks")).toArray();
+        for (const QJsonValue &trackValue : tracks) {
+            const QJsonObject track = trackValue.toObject();
+            QString title = track.value(QStringLiteral("title")).toString().trimmed();
+            if (title.isEmpty()) {
+                title = track.value(QStringLiteral("recording"))
+                            .toObject()
+                            .value(QStringLiteral("title"))
+                            .toString()
+                            .trimmed();
+            }
+            if (title.isEmpty()) {
+                continue;
+            }
+            ++absolutePosition;
+            const int trackNumber =
+                parseTrackNumber(track.value(QStringLiteral("number")).toString());
+            QVariantMap row;
+            row.insert(QStringLiteral("title"), title);
+            row.insert(QStringLiteral("trackNumber"), trackNumber > 0 ? trackNumber : absolutePosition);
+            row.insert(QStringLiteral("position"), absolutePosition);
+            tracklist << row;
+
+            if (!trackTitle.trimmed().isEmpty() && !extra.contains(QStringLiteral("title"))
+                && trackTitleMatches(title, trackTitle)) {
+                extra.insert(QStringLiteral("title"), title);
                 if (trackNumber > 0) {
                     extra.insert(QStringLiteral("trackNumber"), trackNumber);
                 }
-                break;
-            }
-            if (extra.contains(QStringLiteral("title"))) {
-                break;
             }
         }
+    }
+    if (!tracklist.isEmpty()) {
+        extra.insert(QStringLiteral("tracklist"), tracklist);
     }
 
     return extra;
@@ -419,22 +695,37 @@ QVariantMap parseDiscogsDetail(const QByteArray &body, const QString &trackTitle
         }
     }
 
-    if (!trackTitle.trimmed().isEmpty()) {
-        const QJsonArray tracklist = release.value(QStringLiteral("tracklist")).toArray();
-        for (const QJsonValue &trackValue : tracklist) {
-            const QJsonObject track = trackValue.toObject();
-            if (track.value(QStringLiteral("type_")).toString() == QStringLiteral("track")
-                && trackTitleMatches(track.value(QStringLiteral("title")).toString(), trackTitle)) {
-                extra.insert(QStringLiteral("title"),
-                             track.value(QStringLiteral("title")).toString().trimmed());
-                const int trackNumber =
-                    parseTrackNumber(track.value(QStringLiteral("position")).toString());
-                if (trackNumber > 0) {
-                    extra.insert(QStringLiteral("trackNumber"), trackNumber);
-                }
-                break;
+    QVariantList tracklist;
+    int absolutePosition = 0;
+    const QJsonArray rawTracklist = release.value(QStringLiteral("tracklist")).toArray();
+    for (const QJsonValue &trackValue : rawTracklist) {
+        const QJsonObject track = trackValue.toObject();
+        if (track.value(QStringLiteral("type_")).toString() != QStringLiteral("track")) {
+            continue;
+        }
+        const QString title = track.value(QStringLiteral("title")).toString().trimmed();
+        if (title.isEmpty()) {
+            continue;
+        }
+        ++absolutePosition;
+        const int trackNumber =
+            parseTrackNumber(track.value(QStringLiteral("position")).toString());
+        QVariantMap row;
+        row.insert(QStringLiteral("title"), title);
+        row.insert(QStringLiteral("trackNumber"), trackNumber > 0 ? trackNumber : absolutePosition);
+        row.insert(QStringLiteral("position"), absolutePosition);
+        tracklist << row;
+
+        if (!trackTitle.trimmed().isEmpty() && !extra.contains(QStringLiteral("title"))
+            && trackTitleMatches(title, trackTitle)) {
+            extra.insert(QStringLiteral("title"), title);
+            if (trackNumber > 0) {
+                extra.insert(QStringLiteral("trackNumber"), trackNumber);
             }
         }
+    }
+    if (!tracklist.isEmpty()) {
+        extra.insert(QStringLiteral("tracklist"), tracklist);
     }
 
     return extra;
@@ -503,10 +794,19 @@ void MetadataSearchService::clear() {
     m_selectedIndex = -1;
     m_currentFields.clear();
     m_fieldChecked.clear();
+    m_localTracksForTitleFix.clear();
+    if (m_localTrackCount != 0) {
+        m_localTrackCount = 0;
+        emit localTrackCountChanged();
+    }
+    m_titleFixProposals.clear();
+    m_titleFixUnmatched.clear();
+    m_titleFixChecked.clear();
     setSearching(false);
     emit candidatesChanged();
     emit selectedIndexChanged();
     emit fieldChoicesChanged();
+    emit titleFixProposalsChanged();
 }
 
 void MetadataSearchService::setCurrentFields(const QVariantMap &fields) {
@@ -515,14 +815,25 @@ void MetadataSearchService::setCurrentFields(const QVariantMap &fields) {
 }
 
 void MetadataSearchService::searchRelease(const QString &artist, const QString &album,
-                                          const QString &albumArtist) {
+                                          const QString &albumArtist, const QVariantList &formats,
+                                          const QString &edition) {
     const QString searchArtist =
         albumArtist.trimmed().isEmpty() ? artist.trimmed() : albumArtist.trimmed();
-    if (!isUsableName(searchArtist) && !isUsableName(album)) {
+    const QString trimmedEdition = edition.trimmed();
+    if (!isUsableName(searchArtist) && !isUsableName(album) && trimmedEdition.isEmpty()) {
         setStatus(QStringLiteral("Need an artist or album name to search"));
         emit searchFinished(false);
         return;
     }
+
+    m_searchFormats.clear();
+    for (const QVariant &value : formats) {
+        const QString format = value.toString().trimmed();
+        if (!format.isEmpty()) {
+            m_searchFormats << format;
+        }
+    }
+    m_searchEdition = trimmedEdition;
 
     m_currentFields.insert(QStringLiteral("artist"), artist);
     m_currentFields.insert(QStringLiteral("album"), album);
@@ -544,9 +855,13 @@ void MetadataSearchService::searchRelease(const QString &artist, const QString &
     emit candidatesChanged();
     emit selectedIndexChanged();
 
-    const QUrl mbUrl = musicBrainzSearchUrl(m_searchArtist, m_searchAlbum);
+    const QUrl mbUrl =
+        musicBrainzSearchUrl(m_searchArtist, m_searchAlbum, m_searchFormats, m_searchEdition);
     const QString token = m_discogs ? m_discogs->loadToken() : QString();
-    const QUrl discogsUrl = token.isEmpty() ? QUrl() : discogsSearchUrl(m_searchArtist, m_searchAlbum);
+    const QUrl discogsUrl =
+        token.isEmpty() ? QUrl()
+                        : discogsSearchUrl(m_searchArtist, m_searchAlbum, m_searchFormats,
+                                           m_searchEdition);
 
     // Sequential: MusicBrainz first, then Discogs — one in-flight reply at a time.
     if (mbUrl.isValid()) {
@@ -574,8 +889,10 @@ void MetadataSearchService::finishSearchIfReady() {
 
     QVariantList results = m_searchAccum;
     std::sort(results.begin(), results.end(), [&](const QVariant &left, const QVariant &right) {
-        return albumMatchScore(left.toMap(), m_searchAlbum, m_searchArtist)
-               > albumMatchScore(right.toMap(), m_searchAlbum, m_searchArtist);
+        return albumMatchScore(left.toMap(), m_searchAlbum, m_searchArtist, m_searchEdition,
+                                m_localTrackCount)
+               > albumMatchScore(right.toMap(), m_searchAlbum, m_searchArtist, m_searchEdition,
+                                 m_localTrackCount);
     });
 
     m_candidates = results;
@@ -584,7 +901,13 @@ void MetadataSearchService::finishSearchIfReady() {
         setStatus(QStringLiteral("No matching releases found"));
         emit searchFinished(false);
     } else {
-        setStatus(QStringLiteral("Found %1 release(s) — select one").arg(results.size()));
+        if (m_localTrackCount > 0) {
+            setStatus(QStringLiteral("Found %1 release(s) — ranked by closeness to your %2 tracks")
+                          .arg(results.size())
+                          .arg(m_localTrackCount));
+        } else {
+            setStatus(QStringLiteral("Found %1 release(s) — select one").arg(results.size()));
+        }
         setSelectedIndex(0);
         emit searchFinished(true);
     }
@@ -612,7 +935,7 @@ void MetadataSearchService::onReplyFinished() {
         --m_searchesRemaining;
         const QString token = m_discogs ? m_discogs->loadToken() : QString();
         const QUrl discogsUrl =
-            token.isEmpty() ? QUrl() : discogsSearchUrl(m_searchArtist, m_searchAlbum);
+            token.isEmpty() ? QUrl() : discogsSearchUrl(m_searchArtist, m_searchAlbum, m_searchFormats, m_searchEdition);
         if (discogsUrl.isValid() && m_searchesRemaining > 0) {
             const QList<QPair<QByteArray, QByteArray>> headers = {
                 {QByteArray("Authorization"), QByteArray("Discogs token=") + token.toUtf8()}};
@@ -625,7 +948,7 @@ void MetadataSearchService::onReplyFinished() {
     }
     case PendingKind::SearchDiscogs: {
         if (netOk) {
-            m_searchAccum.append(parseDiscogsSearch(body, m_searchArtist));
+            m_searchAccum.append(parseDiscogsSearch(body, m_searchArtist, m_searchFormats));
         }
         m_searchesRemaining = 0;
         finishSearchIfReady();
@@ -661,6 +984,7 @@ void MetadataSearchService::setSelectedIndex(int index) {
     }
     m_selectedIndex = index;
     rebuildFieldChoices();
+    rebuildTitleFixProposals();
     emit selectedIndexChanged();
     beginReleaseDetailFetch(index);
 }
@@ -715,16 +1039,33 @@ void MetadataSearchService::applyReleaseDetailFields(int index, int fetchId,
 
     QVariantMap row = m_candidates.at(index).toMap();
     QVariantMap fields = normalizeCandidateFields(row.value(QStringLiteral("fields")).toMap());
+    const QVariantList tracklist = extra.value(QStringLiteral("tracklist")).toList();
     for (auto it = extra.constBegin(); it != extra.constEnd(); ++it) {
+        if (it.key() == QStringLiteral("tracklist")) {
+            continue;
+        }
         if (proposedFieldEmpty(it.key(), it.value())) {
             continue;
         }
         fields.insert(it.key(), it.value());
     }
     row.insert(QStringLiteral("fields"), fields);
+    if (!tracklist.isEmpty()) {
+        row.insert(QStringLiteral("tracklist"), tracklist);
+        row.insert(QStringLiteral("trackCount"), tracklist.size());
+        fields.insert(QStringLiteral("trackCount"), tracklist.size());
+        row.insert(QStringLiteral("fields"), fields);
+        QString detail = row.value(QStringLiteral("detail")).toString();
+        const QString trackSuffix = QStringLiteral("%1 tracks").arg(tracklist.size());
+        if (!detail.contains(QStringLiteral("tracks"), Qt::CaseInsensitive)) {
+            detail = detail.isEmpty() ? trackSuffix : detail + QStringLiteral(" · ") + trackSuffix;
+            row.insert(QStringLiteral("detail"), detail);
+        }
+    }
     m_candidates[index] = row;
     emit candidatesChanged();
     rebuildFieldChoices();
+    rebuildTitleFixProposals();
 
     if (!m_searching) {
         setStatus(QStringLiteral("Found %1 release(s) — select one").arg(m_candidates.size()));
@@ -803,6 +1144,168 @@ QVariantMap MetadataSearchService::checkedFields() const {
         fields.insert(it.key(), candidate.value(it.key()));
     }
     return fields;
+}
+
+
+void MetadataSearchService::setLocalTrackCount(int count) {
+    const int bounded = qMax(0, count);
+    if (m_localTrackCount == bounded) {
+        return;
+    }
+    m_localTrackCount = bounded;
+    emit localTrackCountChanged();
+}
+
+void MetadataSearchService::setLocalTracksForTitleFix(const QVariantList &tracks) {
+    m_localTracksForTitleFix = tracks;
+    setLocalTrackCount(tracks.size());
+    rebuildTitleFixProposals();
+}
+
+void MetadataSearchService::setTitleFixChecked(int index, bool checked) {
+    if (index < 0 || index >= m_titleFixProposals.size()) {
+        return;
+    }
+    if (m_titleFixChecked.value(index) == checked) {
+        return;
+    }
+    m_titleFixChecked.insert(index, checked);
+    QVariantMap row = m_titleFixProposals.at(index).toMap();
+    row.insert(QStringLiteral("checked"), checked);
+    m_titleFixProposals[index] = row;
+    emit titleFixProposalsChanged();
+}
+
+QVariantList MetadataSearchService::checkedTitleFixProposals() const {
+    QVariantList rows;
+    for (int i = 0; i < m_titleFixProposals.size(); ++i) {
+        if (!m_titleFixChecked.value(i, false)) {
+            continue;
+        }
+        rows << m_titleFixProposals.at(i);
+    }
+    return rows;
+}
+
+void MetadataSearchService::rebuildTitleFixProposals() {
+    m_titleFixProposals.clear();
+    m_titleFixUnmatched.clear();
+    m_titleFixChecked.clear();
+
+    if (m_localTracksForTitleFix.isEmpty() || m_selectedIndex < 0
+        || m_selectedIndex >= m_candidates.size()) {
+        emit titleFixProposalsChanged();
+        return;
+    }
+
+    const QVariantList official =
+        m_candidates.at(m_selectedIndex).toMap().value(QStringLiteral("tracklist")).toList();
+    if (official.isEmpty()) {
+        for (const QVariant &localValue : m_localTracksForTitleFix) {
+            m_titleFixUnmatched << localValue;
+        }
+        emit titleFixProposalsChanged();
+        return;
+    }
+
+    QVector<bool> usedOfficial(official.size(), false);
+    QVector<int> matchOfficialIndex(m_localTracksForTitleFix.size(), -1);
+
+    auto officialNumberMatches = [&](const QVariantMap &officialTrack, int localNumber) {
+        if (localNumber <= 0) {
+            return false;
+        }
+        return officialTrack.value(QStringLiteral("trackNumber")).toInt() == localNumber
+               || officialTrack.value(QStringLiteral("position")).toInt() == localNumber;
+    };
+
+    for (int localIndex = 0; localIndex < m_localTracksForTitleFix.size(); ++localIndex) {
+        const QVariantMap local = m_localTracksForTitleFix.at(localIndex).toMap();
+        const int localNumber = local.value(QStringLiteral("trackNumber")).toInt();
+        if (localNumber <= 0) {
+            continue;
+        }
+        QList<int> candidates;
+        for (int officialIndex = 0; officialIndex < official.size(); ++officialIndex) {
+            if (usedOfficial.at(officialIndex)) {
+                continue;
+            }
+            if (officialNumberMatches(official.at(officialIndex).toMap(), localNumber)) {
+                candidates << officialIndex;
+            }
+        }
+        if (candidates.isEmpty()) {
+            continue;
+        }
+        int chosen = candidates.first();
+        if (candidates.size() > 1) {
+            int bestScore = -1;
+            const QString localTitle = local.value(QStringLiteral("title")).toString();
+            for (int officialIndex : candidates) {
+                const int score = titleMatchScore(
+                    localTitle, official.at(officialIndex).toMap().value(QStringLiteral("title")).toString());
+                if (score > bestScore) {
+                    bestScore = score;
+                    chosen = officialIndex;
+                }
+            }
+        }
+        usedOfficial[chosen] = true;
+        matchOfficialIndex[localIndex] = chosen;
+    }
+
+    for (int localIndex = 0; localIndex < m_localTracksForTitleFix.size(); ++localIndex) {
+        if (matchOfficialIndex.at(localIndex) >= 0) {
+            continue;
+        }
+        const QVariantMap local = m_localTracksForTitleFix.at(localIndex).toMap();
+        const QString localTitle = local.value(QStringLiteral("title")).toString();
+        int bestScore = 0;
+        int bestIndex = -1;
+        for (int officialIndex = 0; officialIndex < official.size(); ++officialIndex) {
+            if (usedOfficial.at(officialIndex)) {
+                continue;
+            }
+            const int score = titleMatchScore(
+                localTitle, official.at(officialIndex).toMap().value(QStringLiteral("title")).toString());
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = officialIndex;
+            }
+        }
+        if (bestIndex >= 0 && bestScore >= 70) {
+            usedOfficial[bestIndex] = true;
+            matchOfficialIndex[localIndex] = bestIndex;
+        }
+    }
+
+    for (int localIndex = 0; localIndex < m_localTracksForTitleFix.size(); ++localIndex) {
+        const QVariantMap local = m_localTracksForTitleFix.at(localIndex).toMap();
+        const int officialIndex = matchOfficialIndex.at(localIndex);
+        if (officialIndex < 0) {
+            m_titleFixUnmatched << local;
+            continue;
+        }
+        const QVariantMap officialTrack = official.at(officialIndex).toMap();
+        const QString currentTitle = local.value(QStringLiteral("title")).toString().trimmed();
+        const QString proposedTitle = officialTrack.value(QStringLiteral("title")).toString().trimmed();
+        if (proposedTitle.isEmpty()
+            || currentTitle.compare(proposedTitle, Qt::CaseInsensitive) == 0) {
+            continue;
+        }
+        QVariantMap proposal;
+        proposal.insert(QStringLiteral("path"), local.value(QStringLiteral("path")));
+        proposal.insert(QStringLiteral("trackNumber"), local.value(QStringLiteral("trackNumber")));
+        proposal.insert(QStringLiteral("current"), currentTitle);
+        proposal.insert(QStringLiteral("proposed"), proposedTitle);
+        proposal.insert(QStringLiteral("matchScore"), titleMatchScore(currentTitle, proposedTitle));
+        proposal.insert(QStringLiteral("checked"), true);
+        const int proposalIndex = m_titleFixProposals.size();
+        m_titleFixChecked.insert(proposalIndex, true);
+        m_titleFixProposals << proposal;
+    }
+
+    emit titleFixProposalsChanged();
 }
 
 void MetadataSearchService::setSearching(bool searching) {

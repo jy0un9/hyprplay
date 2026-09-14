@@ -26,6 +26,7 @@ class PlaybackService : public QObject {
     Q_PROPERTY(QString error READ error NOTIFY playbackChanged)
     Q_PROPERTY(bool dacPassthrough READ dacPassthrough WRITE setDacPassthrough NOTIFY dacPassthroughChanged)
     Q_PROPERTY(QString audioBackend READ audioBackend NOTIFY audioBackendChanged)
+    Q_PROPERTY(QString audioDevice READ audioDevice WRITE setAudioDevice NOTIFY audioBackendChanged)
 
 public:
     explicit PlaybackService(QObject *parent = nullptr);
@@ -46,6 +47,7 @@ public:
     QString error() const { return m_error; }
     bool dacPassthrough() const { return m_dacPassthrough; }
     QString audioBackend() const { return m_audioBackend; }
+    QString audioDevice() const { return m_audioDevice; }
 
     Q_INVOKABLE void playPath(const QString &path, const QString &title = {},
                               const QString &artist = {}, const QString &album = {});
@@ -63,6 +65,8 @@ public:
     Q_INVOKABLE void setRepeatMode(int mode);
     Q_INVOKABLE void setShuffle(bool enabled);
     Q_INVOKABLE void setDacPassthrough(bool enabled);
+    Q_INVOKABLE void setAudioDevice(const QString &name);
+    Q_INVOKABLE QVariantList audioDeviceList() const;
 
     bool ensureMpv();
 
@@ -123,4 +127,5 @@ private:
     QString m_error;
     bool m_dacPassthrough = false;
     QString m_audioBackend;
+    QString m_audioDevice;
 };

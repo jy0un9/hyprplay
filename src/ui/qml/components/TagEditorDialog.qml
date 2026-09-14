@@ -7,6 +7,7 @@ Dialog {
     id: tagEditor
     title: App.tagEditorTitle.length > 0 ? App.tagEditorTitle : "Edit Tags"
     modal: true
+    Overlay.modal: ThemedModalScrim {}
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(480, parent ? parent.width * 0.9 : 480)

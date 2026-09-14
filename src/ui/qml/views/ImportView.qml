@@ -5,9 +5,12 @@ import components 1.0
 
 Pane {
     id: importView
-    padding: Theme.spaceLg
+    property bool embedded: false
+    signal configureRequested()
 
-    background: Rectangle { color: Theme.background }
+    padding: embedded ? 0 : Theme.spaceLg
+
+    background: Rectangle { color: embedded ? "transparent" : Theme.background }
 
     ColumnLayout {
         anchors.fill: parent
@@ -18,6 +21,7 @@ Pane {
             font.pixelSize: Theme.fontDisplay
             font.bold: true
             color: Theme.foreground
+            visible: !importView.embedded
         }
 
         Label {
@@ -68,6 +72,7 @@ Pane {
             Button {
                 text: "Cancel"
                 visible: App.importInbox.importing
+                enabled: !App.importInbox.awaitingDecision
                 onClicked: App.importInbox.cancelImport()
             }
         }
@@ -78,6 +83,14 @@ Pane {
             to: 100
             value: App.importInbox.progress
             visible: App.importInbox.importing || App.importInbox.progress > 0
+        }
+
+        Label {
+            visible: App.importInbox.importing && App.importInbox.tracksTotal > 0
+            text: "Tracks " + App.importInbox.tracksDone + " / " + App.importInbox.tracksTotal
+            opacity: 0.55
+            font.pixelSize: Theme.fontCaption
+            color: Theme.foreground
         }
 
         Label {
@@ -94,7 +107,7 @@ Pane {
 
         Label {
             visible: albumList.count > 0
-            text: "Uncheck albums to skip. Each row shows the Opus destination under your library."
+            text: "Uncheck albums to skip. FLACs convert to Opus under your library. Failed converts pause so you can fix — nothing broken is written."
             opacity: 0.6
             font.pixelSize: Theme.fontCaption
             color: Theme.foreground
@@ -111,6 +124,7 @@ Pane {
             model: App.importInbox.albums
             visible: count > 0 || App.importInbox.importing
             spacing: 2
+            enabled: !App.importInbox.awaitingDecision
 
             delegate: ItemDelegate {
                 id: albumDelegate
@@ -176,11 +190,114 @@ Pane {
             title: App.config.importInbox.length > 0 ? "Inbox is empty" : "No inbox folder set"
             subtitle: App.config.importInbox.length > 0
                       ? "Drop albums into the inbox folder, then scan."
-                      : "Set your Music folder in Settings first."
-            actionText: App.config.importInbox.length > 0 ? "" : "Open Settings"
+                      : "Choose an inbox folder in Import setup."
+            actionText: App.config.importInbox.length > 0 ? "" : "Configure inbox"
             loading: App.importInbox.importing
             visible: albumList.count === 0 && !App.importInbox.importing
-            onActionClicked: App.showSettings()
+            onActionClicked: {
+                if (importView.embedded)
+                    importView.configureRequested()
+                else
+                    App.showSettings()
+            }
+        }
+    }
+
+    Dialog {
+        id: decisionDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        Overlay.modal: ThemedModalScrim {}
+        closePolicy: Popup.NoAutoClose
+        title: App.importInbox.decisionTitle.length > 0
+               ? App.importInbox.decisionTitle
+               : "Import conversion failed"
+        width: Math.min(520, Overlay.overlay ? Overlay.overlay.width - 48 : 520)
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spaceMd
+
+            Label {
+                text: App.importInbox.decisionMessage
+                wrapMode: Text.WordWrap
+                color: Theme.foreground
+                Layout.fillWidth: true
+            }
+
+            Label {
+                visible: App.importInbox.decisionDetail.length > 0
+                text: App.importInbox.decisionDetail
+                wrapMode: Text.WrapAnywhere
+                elide: Text.ElideMiddle
+                maximumLineCount: 3
+                opacity: 0.65
+                font.pixelSize: Theme.fontCaption
+                color: Theme.foreground
+                Layout.fillWidth: true
+            }
+
+            Label {
+                text: "Fix the problem and Retry, or skip. Partial Opus files are never left in the library."
+                wrapMode: Text.WordWrap
+                opacity: 0.7
+                font.pixelSize: Theme.fontCaption
+                color: Theme.muted
+                Layout.fillWidth: true
+            }
+        }
+
+        footer: DialogButtonBox {
+            Button {
+                text: "Retry"
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                onClicked: {
+                    App.importInbox.resolveImportDecision("retry")
+                    decisionDialog.close()
+                }
+            }
+            Button {
+                text: "Skip track"
+                DialogButtonBox.buttonRole: DialogButtonBox.ActionRole
+                onClicked: {
+                    App.importInbox.resolveImportDecision("skipTrack")
+                    decisionDialog.close()
+                }
+            }
+            Button {
+                text: "Skip album"
+                DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
+                onClicked: {
+                    App.importInbox.resolveImportDecision("skipAlbum")
+                    decisionDialog.close()
+                }
+            }
+            Button {
+                text: "Abort import"
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                onClicked: {
+                    App.importInbox.resolveImportDecision("abort")
+                    decisionDialog.close()
+                }
+            }
+        }
+
+        onRejected: {
+            if (App.importInbox.awaitingDecision)
+                App.importInbox.resolveImportDecision("abort")
+        }
+    }
+
+    Connections {
+        target: App.importInbox
+        function onDecisionChanged() {
+            if (App.importInbox.awaitingDecision)
+                decisionDialog.open()
+            else if (decisionDialog.visible)
+                decisionDialog.close()
+        }
+        function onDecisionRequired(title, message, detailPath) {
+            decisionDialog.open()
         }
     }
 }

@@ -32,10 +32,20 @@ Notes:
   type lacks (e.g. `AbstractButton` has no `flat`) or the whole app fails to
   load with "QQmlApplicationEngine failed to load component".
 
+## Version sync (releases)
+
+Keep these equal when cutting a release:
+- `kAppVersion` in `src/main.cpp`
+- `desktop/org.jy0un9.qt-music.metainfo.xml` `<release>`
+- `PKGBUILD` `pkgver`
+- `CHANGELOG.md` heading
+
 ## Verification
 
 ```bash
 git diff --check
 cd tests && qmake6 tests.pro && make -j$(nproc) && ./qt-music-tests && cd ..
 QT_QPA_PLATFORM=offscreen timeout 5 ./qt-music-bin   # check for QML load errors
+desktop-file-validate desktop/qt-music.desktop
+appstreamcli validate desktop/org.jy0un9.qt-music.metainfo.xml
 ```

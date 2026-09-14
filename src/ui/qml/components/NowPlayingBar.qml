@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import components 1.0
 
 Pane {
     id: bar
@@ -95,15 +96,23 @@ Pane {
                 spacing: 1
 
                 Label {
+                    id: nowPlayingTitleLabel
                     text: playback.title.length > 0 ? playback.title : "Not playing"
                     font.bold: true
                     color: playback.playing && !playback.paused
                            ? Theme.accent : Theme.foreground
                     elide: Text.ElideRight
                     Layout.fillWidth: true
+                    HoverHandler { id: nowPlayingTitleHover }
+                    ElisionPopup {
+                        visible: nowPlayingTitleHover.hovered && nowPlayingTitleLabel.truncated
+                        text: nowPlayingTitleLabel.text
+                    }
+
                 }
 
                 Label {
+                    id: nowPlayingArtistLabel
                     text: playback.artist.length > 0
                           ? playback.artist + " — " + playback.album
                           : (playback.error.length > 0 ? playback.error : "")
@@ -112,6 +121,12 @@ Pane {
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                     font.pixelSize: Theme.fontSmall
+                    HoverHandler { id: nowPlayingArtistHover }
+                    ElisionPopup {
+                        visible: nowPlayingArtistHover.hovered && nowPlayingArtistLabel.truncated
+                        text: nowPlayingArtistLabel.text
+                    }
+
                 }
 
                 Label {
@@ -177,8 +192,11 @@ Pane {
             TransportButton {
                 Layout.alignment: Qt.AlignVCenter
                 iconName: volumeIconName()
-                glyphOpacity: playback.muted ? 1 : 0.7
+                glyphOpacity: playback.dacPassthrough ? 0.4 : (playback.muted ? 1 : 0.7)
                 accessibleLabel: playback.muted ? "Unmute" : "Mute"
+                enabled: !playback.dacPassthrough
+                ToolTip.visible: App.config.tooltipsEnabled && hovered && playback.dacPassthrough
+                ToolTip.text: "Mute disabled in DAC passthrough — pause or use the DAC knob"
                 onClicked: playback.setMuted(!playback.muted)
             }
 

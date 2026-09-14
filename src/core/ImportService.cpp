@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QMutexLocker>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QtConcurrent>
@@ -29,6 +30,13 @@ const QStringList kCoverNames = {
     QStringLiteral("front.jpg"),  QStringLiteral("front.jpeg"),
     QStringLiteral("front.png"),
 };
+
+bool isImportableAudio(const QString &path) {
+    const QString lower = path.toLower();
+    return lower.endsWith(QStringLiteral(".flac")) || lower.endsWith(QStringLiteral(".opus"))
+           || lower.endsWith(QStringLiteral(".mp3")) || lower.endsWith(QStringLiteral(".m4a"))
+           || lower.endsWith(QStringLiteral(".aac"));
+}
 
 bool isFlac(const QString &path) {
     return path.toLower().endsWith(QStringLiteral(".flac"));
@@ -108,11 +116,30 @@ bool folderArtistAlbum(const QString &albumDirPath, QString *artist, QString *al
     return true;
 }
 
-QString destOpusPath(const QString &musicDir, const QString &artist, const QString &album,
-                     const QString &flacPath) {
-    const QString stem = QFileInfo(flacPath).completeBaseName();
+QString destTrackPath(const QString &musicDir, const QString &artist, const QString &album,
+                      const QString &sourcePath, bool convertToOpus) {
+    const QFileInfo info(sourcePath);
+    const QString fileName = convertToOpus ? (info.completeBaseName() + QStringLiteral(".opus"))
+                                           : info.fileName();
     return QDir(musicDir).absoluteFilePath(artist + QLatin1Char('/') + album + QLatin1Char('/')
-                                           + stem + QStringLiteral(".opus"));
+                                           + fileName);
+}
+
+bool copyAudioFile(const QString &from, const QString &to, QString *errorOut) {
+    const auto setError = [errorOut](const QString &msg) {
+        if (errorOut) {
+            *errorOut = msg;
+        }
+    };
+    QDir().mkpath(QFileInfo(to).absolutePath());
+    if (QFile::exists(to)) {
+        return true;
+    }
+    if (QFile::copy(from, to)) {
+        return true;
+    }
+    setError(QStringLiteral("Failed to copy track into the library."));
+    return false;
 }
 
 QString findCover(const QString &sourceDir) {
@@ -156,30 +183,85 @@ bool commandExists(const QString &program) {
     return process.waitForFinished(3000) && process.exitCode() == 0;
 }
 
-bool convertFlacToOpus(const QString &flacPath, const QString &opusPath) {
-    QDir().mkpath(QFileInfo(opusPath).absolutePath());
+bool renameOrCopy(const QString &from, const QString &to) {
+    QFile::remove(to);
+    if (QFile::rename(from, to)) {
+        return true;
+    }
+    if (QFile::copy(from, to)) {
+        QFile::remove(from);
+        return QFile::exists(to);
+    }
+    return false;
+}
 
-    if (commandExists(QStringLiteral("opusenc"))) {
-        QProcess process;
-        process.start(QStringLiteral("opusenc"),
-                      {QStringLiteral("--vbr"), QStringLiteral("--comp 10"), flacPath, opusPath});
-        if (process.waitForFinished(600000)
-            && process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0) {
-            return true;
+// Encode to opusPath.partial, then rename into place. Never leaves a partial final .opus.
+bool convertFlacToOpus(const QString &flacPath, const QString &opusPath, int bitrateKbps,
+                       QString *errorOut) {
+    const auto setError = [errorOut](const QString &msg) {
+        if (errorOut) {
+            *errorOut = msg;
         }
+    };
+
+    QDir().mkpath(QFileInfo(opusPath).absolutePath());
+    const QString tempPath = opusPath + QStringLiteral(".partial");
+    QFile::remove(tempPath);
+
+    const bool haveOpusenc = commandExists(QStringLiteral("opusenc"));
+    const bool haveFfmpeg = commandExists(QStringLiteral("ffmpeg"));
+    if (!haveOpusenc && !haveFfmpeg) {
+        setError(QStringLiteral(
+            "Neither opusenc nor ffmpeg was found. Install opus-tools or ffmpeg, then Retry."));
+        return false;
     }
 
-    if (!commandExists(QStringLiteral("ffmpeg"))) {
-        return false;
+    bitrateKbps = qBound(48, bitrateKbps, 512);
+    const QString bitrateArg = QString::number(bitrateKbps);
+
+    if (haveOpusenc) {
+        QProcess process;
+        process.start(QStringLiteral("opusenc"),
+                      {QStringLiteral("--vbr"), QStringLiteral("--comp"), QStringLiteral("10"),
+                       QStringLiteral("--bitrate"), bitrateArg, flacPath, tempPath});
+        if (process.waitForFinished(600000) && process.exitStatus() == QProcess::NormalExit
+            && process.exitCode() == 0 && QFile::exists(tempPath)) {
+            if (renameOrCopy(tempPath, opusPath)) {
+                return true;
+            }
+            QFile::remove(tempPath);
+            setError(QStringLiteral("Encoded OK but failed to move Opus into the library."));
+            return false;
+        }
+        QFile::remove(tempPath);
+        if (!haveFfmpeg) {
+            const QString err = QString::fromUtf8(process.readAllStandardError()).trimmed();
+            setError(err.isEmpty() ? QStringLiteral("opusenc failed for this track.")
+                                   : QStringLiteral("opusenc: ") + err);
+            return false;
+        }
     }
 
     QProcess ffmpeg;
     ffmpeg.start(QStringLiteral("ffmpeg"),
-                 {QStringLiteral("-y"), QStringLiteral("-i"), flacPath,
-                  QStringLiteral("-c:a"), QStringLiteral("libopus"), QStringLiteral("-b:a"),
-                  QStringLiteral("256k"), opusPath});
-    return ffmpeg.waitForFinished(600000) && ffmpeg.exitStatus() == QProcess::NormalExit
-           && ffmpeg.exitCode() == 0 && QFile::exists(opusPath);
+                 {QStringLiteral("-y"), QStringLiteral("-i"), flacPath, QStringLiteral("-c:a"),
+                  QStringLiteral("libopus"), QStringLiteral("-b:a"), bitrateArg + QStringLiteral("k"),
+                  tempPath});
+    if (ffmpeg.waitForFinished(600000) && ffmpeg.exitStatus() == QProcess::NormalExit
+        && ffmpeg.exitCode() == 0 && QFile::exists(tempPath)) {
+        if (renameOrCopy(tempPath, opusPath)) {
+            return true;
+        }
+        QFile::remove(tempPath);
+        setError(QStringLiteral("Encoded OK but failed to move Opus into the library."));
+        return false;
+    }
+
+    QFile::remove(tempPath);
+    const QString err = QString::fromUtf8(ffmpeg.readAllStandardError()).trimmed();
+    setError(err.isEmpty() ? QStringLiteral("ffmpeg failed for this track.")
+                           : QStringLiteral("ffmpeg: ") + err.right(400));
+    return false;
 }
 
 QVariantList discoverAlbums(const QString &inboxRoot, const QString &musicDir) {
@@ -187,7 +269,7 @@ QVariantList discoverAlbums(const QString &inboxRoot, const QString &musicDir) {
     QDirIterator it(inboxRoot, QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         const QString path = it.next();
-        if (!isFlac(path)) {
+        if (!isImportableAudio(path)) {
             continue;
         }
         const QString parent = QFileInfo(path).absolutePath();
@@ -201,8 +283,8 @@ QVariantList discoverAlbums(const QString &inboxRoot, const QString &musicDir) {
         if (!folderArtistAlbum(it.key(), &artist, &album)) {
             continue;
         }
-        QStringList flacs = it.value();
-        std::sort(flacs.begin(), flacs.end());
+        QStringList tracks = it.value();
+        std::sort(tracks.begin(), tracks.end());
 
         const QString destDir =
             musicDir.isEmpty()
@@ -213,8 +295,10 @@ QVariantList discoverAlbums(const QString &inboxRoot, const QString &musicDir) {
         row.insert(QStringLiteral("sourceDir"), it.key());
         row.insert(QStringLiteral("artist"), artist);
         row.insert(QStringLiteral("album"), album);
-        row.insert(QStringLiteral("trackCount"), flacs.size());
-        row.insert(QStringLiteral("flacs"), flacs);
+        row.insert(QStringLiteral("trackCount"), tracks.size());
+        row.insert(QStringLiteral("tracks"), tracks);
+        // Keep legacy key for any callers still reading "flacs".
+        row.insert(QStringLiteral("flacs"), tracks);
         row.insert(QStringLiteral("destDir"), destDir);
         row.insert(QStringLiteral("selected"), true);
         albums << row;
@@ -282,7 +366,7 @@ void ImportService::scanInbox() {
     m_albums = discoverAlbums(inbox, musicLibraryRoot());
     emit albumsChanged();
     setStatus(m_albums.isEmpty()
-                  ? QStringLiteral("No FLAC albums found in inbox")
+                  ? QStringLiteral("No audio albums found in inbox")
                   : QStringLiteral("Found %1 album(s) — review destinations, then import")
                         .arg(m_albums.size()));
 }
@@ -318,6 +402,91 @@ void ImportService::setAllAlbumsSelected(bool selected) {
 
 void ImportService::cancelImport() {
     m_cancelRequested = true;
+    QMutexLocker lock(&m_decisionMutex);
+    if (m_awaitingDecision) {
+        m_decision = Decision::Abort;
+        m_awaitingDecision = false;
+        m_decisionCond.wakeAll();
+    }
+    QMetaObject::invokeMethod(
+        this,
+        [this]() {
+            emit decisionChanged();
+        },
+        Qt::QueuedConnection);
+}
+
+void ImportService::resolveImportDecision(const QString &action) {
+    Decision d = Decision::Abort;
+    if (action == QLatin1String("retry")) {
+        d = Decision::Retry;
+    } else if (action == QLatin1String("skipTrack")) {
+        d = Decision::SkipTrack;
+    } else if (action == QLatin1String("skipAlbum")) {
+        d = Decision::SkipAlbum;
+    } else if (action == QLatin1String("abort")) {
+        d = Decision::Abort;
+    } else {
+        return;
+    }
+
+    QMutexLocker lock(&m_decisionMutex);
+    if (!m_awaitingDecision) {
+        return;
+    }
+    m_decision = d;
+    m_awaitingDecision = false;
+    m_decisionCond.wakeAll();
+    lock.unlock();
+    emit decisionChanged();
+}
+
+void ImportService::clearDecisionState() {
+    QMutexLocker lock(&m_decisionMutex);
+    m_awaitingDecision = false;
+    m_decision = Decision::None;
+    m_decisionTitle.clear();
+    m_decisionMessage.clear();
+    m_decisionDetail.clear();
+}
+
+ImportService::Decision ImportService::waitForDecision(const QString &title, const QString &message,
+                                                       const QString &detail) {
+    {
+        QMutexLocker lock(&m_decisionMutex);
+        m_decision = Decision::None;
+        m_awaitingDecision = true;
+        m_decisionTitle = title;
+        m_decisionMessage = message;
+        m_decisionDetail = detail;
+    }
+
+    QMetaObject::invokeMethod(
+        this,
+        [this, title, message, detail]() {
+            emit decisionChanged();
+            emit decisionRequired(title, message, detail);
+        },
+        Qt::QueuedConnection);
+
+    QMutexLocker lock(&m_decisionMutex);
+    while (m_decision == Decision::None && !m_cancelRequested) {
+        m_decisionCond.wait(&m_decisionMutex);
+    }
+
+    Decision result = m_cancelRequested ? Decision::Abort : m_decision;
+    m_awaitingDecision = false;
+    m_decision = Decision::None;
+    lock.unlock();
+
+    QMetaObject::invokeMethod(
+        this,
+        [this]() {
+            emit decisionChanged();
+        },
+        Qt::QueuedConnection);
+
+    return result;
 }
 
 void ImportService::startImport(bool runBeets) {
@@ -332,32 +501,45 @@ void ImportService::startImport(bool runBeets) {
     }
 
     QVariantList selectedAlbums;
+    int totalTracks = 0;
     for (const QVariant &item : m_albums) {
         const QVariantMap album = item.toMap();
         if (!album.value(QStringLiteral("selected"), true).toBool()) {
             continue;
         }
         selectedAlbums << album;
+        const QStringList tracks = album.value(QStringLiteral("tracks")).toStringList();
+        totalTracks += tracks.isEmpty() ? album.value(QStringLiteral("flacs")).toStringList().size()
+                                        : tracks.size();
     }
     if (selectedAlbums.isEmpty()) {
         setStatus(QStringLiteral("No albums selected"));
         return;
     }
 
+    const int bitrateKbps = m_config->opusBitrateKbps();
+    const bool convertToOpus =
+        m_config->importMode() == QLatin1String("convert_opus");
+
     m_cancelRequested = false;
+    clearDecisionState();
     setImporting(true);
+    setTrackProgress(0, totalTracks);
     setProgress(0);
-    setStatus(QStringLiteral("Importing %1 album(s)…").arg(selectedAlbums.size()));
+    setStatus(QStringLiteral("Importing %1 album(s), %2 track(s)…")
+                  .arg(selectedAlbums.size())
+                  .arg(totalTracks));
 
     ImportService *self = this;
 
-    (void)QtConcurrent::run([self, selectedAlbums, musicDir, runBeets]() {
-        int done = 0;
-        const int total = selectedAlbums.size();
+    (void)QtConcurrent::run([self, selectedAlbums, musicDir, runBeets, bitrateKbps, totalTracks,
+                             convertToOpus]() {
+        int tracksDone = 0;
         bool success = true;
+        bool abortAll = false;
 
         for (const QVariant &item : selectedAlbums) {
-            if (self->m_cancelRequested) {
+            if (abortAll || self->m_cancelRequested) {
                 success = false;
                 break;
             }
@@ -366,7 +548,11 @@ void ImportService::startImport(bool runBeets) {
             const QString sourceDir = album.value(QStringLiteral("sourceDir")).toString();
             const QString artist = album.value(QStringLiteral("artist")).toString();
             const QString albumName = album.value(QStringLiteral("album")).toString();
-            const QStringList flacs = album.value(QStringLiteral("flacs")).toStringList();
+            QStringList tracks = album.value(QStringLiteral("tracks")).toStringList();
+            if (tracks.isEmpty()) {
+                tracks = album.value(QStringLiteral("flacs")).toStringList();
+            }
+            const QString albumLabel = artist + QStringLiteral(" — ") + albumName;
 
             QString destDir = album.value(QStringLiteral("destDir")).toString();
             if (destDir.isEmpty()) {
@@ -374,60 +560,149 @@ void ImportService::startImport(bool runBeets) {
             }
             QDir().mkpath(destDir);
 
-            for (const QString &flac : flacs) {
-                const QString opusPath = destOpusPath(musicDir, artist, albumName, flac);
-                if (!QFile::exists(opusPath)) {
-                    if (!convertFlacToOpus(flac, opusPath)) {
-                        success = false;
+            bool skipAlbum = false;
+            bool albumHadSuccessTrack = false;
+
+            for (int ti = 0; ti < tracks.size(); ++ti) {
+                if (abortAll || self->m_cancelRequested) {
+                    success = false;
+                    abortAll = true;
+                    break;
+                }
+
+                const QString sourcePath = tracks.at(ti);
+                const QString trackName = QFileInfo(sourcePath).fileName();
+                const bool encodeThis =
+                    convertToOpus && isFlac(sourcePath);
+                const QString status = QStringLiteral("%1 · %2/%3 · %4")
+                                          .arg(albumLabel)
+                                          .arg(ti + 1)
+                                          .arg(tracks.size())
+                                          .arg(trackName);
+                const int percent =
+                    totalTracks > 0 ? qBound(0, (tracksDone * 100) / totalTracks, 99) : 0;
+                QMetaObject::invokeMethod(
+                    self,
+                    [self, percent, status, tracksDone, totalTracks]() {
+                        self->setProgress(percent);
+                        self->setStatus(status);
+                        self->setTrackProgress(tracksDone, totalTracks);
+                    },
+                    Qt::QueuedConnection);
+
+                const QString destPath =
+                    destTrackPath(musicDir, artist, albumName, sourcePath, encodeThis);
+                bool trackOk = QFile::exists(destPath);
+
+                while (!trackOk) {
+                    QString error;
+                    if (encodeThis) {
+                        if (convertFlacToOpus(sourcePath, destPath, bitrateKbps, &error)) {
+                            trackOk = true;
+                            break;
+                        }
+                    } else if (copyAudioFile(sourcePath, destPath, &error)) {
+                        trackOk = true;
+                        break;
+                    }
+
+                    success = false;
+                    const Decision decision = self->waitForDecision(
+                        encodeThis ? QStringLiteral("Import conversion failed")
+                                   : QStringLiteral("Import copy failed"),
+                        error.isEmpty()
+                            ? (encodeThis ? QStringLiteral("Could not convert this FLAC to Opus.")
+                                          : QStringLiteral("Could not copy this track."))
+                            : error,
+                        sourcePath);
+
+                    if (decision == Decision::Retry) {
                         continue;
+                    }
+                    if (decision == Decision::SkipTrack) {
+                        break;
+                    }
+                    if (decision == Decision::SkipAlbum) {
+                        skipAlbum = true;
+                        break;
+                    }
+                    abortAll = true;
+                    break;
+                }
+
+                if (abortAll || skipAlbum) {
+                    break;
+                }
+
+                if (trackOk && QFile::exists(destPath)) {
+                    albumHadSuccessTrack = true;
+                    if (self->m_tags) {
+                        QVariantMap fields;
+                        fields.insert(QStringLiteral("artist"), artist);
+                        fields.insert(QStringLiteral("album"), albumName);
+                        fields.insert(QStringLiteral("albumArtist"), artist);
+                        self->m_tags->writeTagsToFile(destPath, fields);
                     }
                 }
 
-                if (self->m_tags) {
-                    QVariantMap fields;
-                    fields.insert(QStringLiteral("artist"), artist);
-                    fields.insert(QStringLiteral("album"), albumName);
-                    fields.insert(QStringLiteral("albumArtist"), artist);
-                    self->m_tags->writeTagsToFile(opusPath, fields);
+                ++tracksDone;
+                const int donePercent =
+                    totalTracks > 0 ? qBound(0, (tracksDone * 100) / totalTracks, 100) : 100;
+                QMetaObject::invokeMethod(
+                    self,
+                    [self, donePercent, tracksDone, totalTracks]() {
+                        self->setProgress(donePercent);
+                        self->setTrackProgress(tracksDone, totalTracks);
+                    },
+                    Qt::QueuedConnection);
+            }
+
+            if (abortAll) {
+                break;
+            }
+            if (skipAlbum) {
+                continue;
+            }
+
+            if (albumHadSuccessTrack) {
+                if (const QString cover = findCover(sourceDir); !cover.isEmpty()) {
+                    const QString ext = QFileInfo(cover).suffix().toLower();
+                    const QString destCover = destDir + QStringLiteral("/cover.") + ext;
+                    if (!QFile::exists(destCover)) {
+                        QFile::copy(cover, destCover);
+                    }
+                }
+                copyLyrics(sourceDir, destDir, self->m_config);
+
+                if (runBeets && self->m_beets && self->m_beets->available()) {
+                    self->m_beets->importAlbum(destDir, true);
                 }
             }
-
-            if (const QString cover = findCover(sourceDir); !cover.isEmpty()) {
-                const QString ext = QFileInfo(cover).suffix().toLower();
-                const QString destCover = destDir + QStringLiteral("/cover.") + ext;
-                if (!QFile::exists(destCover)) {
-                    QFile::copy(cover, destCover);
-                }
-            }
-            copyLyrics(sourceDir, destDir, self->m_config);
-
-            if (runBeets && self->m_beets && self->m_beets->available()) {
-                self->m_beets->importAlbum(destDir, true);
-            }
-
-            ++done;
-            const int percent = total > 0 ? (done * 100) / total : 100;
-            const QString status = QStringLiteral("Imported %1 — %2 (%3/%4)")
-                                       .arg(artist, albumName)
-                                       .arg(done)
-                                       .arg(total);
-            QMetaObject::invokeMethod(self, [self, percent, status]() {
-                self->setProgress(percent);
-                self->setStatus(status);
-            }, Qt::QueuedConnection);
         }
 
-        QMetaObject::invokeMethod(self, [self, success, musicDir]() {
-            self->setImporting(false);
-            self->setProgress(100);
-            self->setStatus(success ? QStringLiteral("Import complete")
-                                    : QStringLiteral("Import finished with errors"));
-            if (self->m_library) {
-                self->m_library->rescan({musicDir});
-            }
-            self->scanInbox();
-            emit self->importFinished(success);
-        }, Qt::QueuedConnection);
+        if (self->m_cancelRequested) {
+            success = false;
+        }
+
+        QMetaObject::invokeMethod(
+            self,
+            [self, success, musicDir, tracksDone, totalTracks]() {
+                self->clearDecisionState();
+                self->setImporting(false);
+                self->setTrackProgress(tracksDone, totalTracks);
+                self->setProgress(100);
+                self->setStatus(success ? QStringLiteral("Import complete")
+                                        : (self->m_cancelRequested
+                                               ? QStringLiteral("Import cancelled")
+                                               : QStringLiteral("Import finished with issues")));
+                emit self->decisionChanged();
+                if (self->m_library) {
+                    self->m_library->rescan({musicDir});
+                }
+                self->scanInbox();
+                emit self->importFinished(success);
+            },
+            Qt::QueuedConnection);
     });
 }
 
@@ -453,5 +728,16 @@ void ImportService::setProgress(int progress) {
         return;
     }
     m_progress = progress;
+    emit progressChanged();
+}
+
+void ImportService::setTrackProgress(int done, int total) {
+    done = qMax(0, done);
+    total = qMax(0, total);
+    if (m_tracksDone == done && m_tracksTotal == total) {
+        return;
+    }
+    m_tracksDone = done;
+    m_tracksTotal = total;
     emit progressChanged();
 }
