@@ -4,48 +4,40 @@
 ![Qt](https://img.shields.io/badge/Qt-6-41cd52)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-Local music player for Linux — built for Omarchy/Hyprland. Browse your library,
-play with libmpv, manage playlists, edit tags, and fetch synced lyrics.
+A local music player for Hyprland and Omarchy. Point it at your music folder and
+it browses by artist, album, and track, plays through mpv, shows synced lyrics,
+and picks up the colors of your current Omarchy theme.
 
-## Screenshots
-
-![Browse](docs/assets/browse.png)
-
-![Playlists](docs/assets/playlists.png)
-
-![Settings](docs/assets/settings.png)
+![Library browser](docs/assets/browse.png)
 
 ## Features
 
-- Browse by artist → album → track, with search (`/`)
+- Artist → album → track browsing with instant search (`/`)
 - Plays FLAC, Opus, Ogg Vorbis, MP3, M4A, and AAC
-- Waveform seek bar, karaoke lyrics, and Omarchy theme sync
-- Playlists, tag editing, and optional Discogs library enrichment
-- Desktop media keys via MPRIS2; open audio files from the file manager
+- Waveform seek bar and karaoke-style synced lyrics, fetched automatically
+- Playlists, tag editing, and cover art straight from your files
+- Bit-perfect output for USB DACs, plus media keys and controls via MPRIS
+- Colors follow your Omarchy theme, no restart needed
 
 ## Install
 
-**Dependencies (Arch / Omarchy):**
+On Arch or Omarchy, install from the AUR:
 
 ```bash
-sudo pacman -S qt6-base qt6-declarative mpv taglib ffmpeg libsecret
-```
-
-Optional: `beets` (import tagging), `opus-tools` (FLAC→Opus convert).
-
-**Build and install:**
-
-```bash
-git clone https://github.com/jy0un9/hyprplay.git
-cd hyprplay
-qmake6 hyprplay.pro
-make -j$(nproc)
-sudo make install
+yay -S hyprplay
 ```
 
 Then launch **Hyprplay** from your app menu, or run `hyprplay`.
 
-Config lives in `~/.config/hyprplay/`. Library paths default to `~/Music`.
+## First run
+
+Open **Settings** (`Ctrl+,`) and set **Music folders** to wherever your music
+lives — `~/Music` by default. Hit **Rescan** and the library fills in.
+
+![Settings](docs/assets/settings.png)
+
+Everything saves the moment you change it. If you want new files picked up
+automatically, turn on **Watch for changes**.
 
 ## Shortcuts
 
@@ -55,8 +47,17 @@ Config lives in `~/.config/hyprplay/`. Library paths default to `~/Music`.
 | `Space` | Play / pause |
 | `↑` `↓` `←` `→` | Browse (→ plays the highlighted track) |
 | `J` / `K` | Next / previous track |
-| `?` | Full shortcut list |
+| `Ctrl+N` | New playlist |
 | `Ctrl+,` | Settings |
+| `?` | Full shortcut list |
+
+## Extras
+
+Under **Settings → Tools**:
+
+- **Import** — copy loose downloads from an inbox folder into your library
+- **Convert** — turn FLAC albums into Opus to save space
+- **Enrich library** — fill in missing tags and cover art from Discogs
 
 ## License
 

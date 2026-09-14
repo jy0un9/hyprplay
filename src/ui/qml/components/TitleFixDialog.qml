@@ -106,17 +106,10 @@ Dialog {
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             onClicked: titleFixDialog.reject()
         }
-        CheckBox {
-            id: syncBeetsField
-            text: "Update beets"
-            visible: App.beets.available
-            checked: App.beets.available
-            anchors.verticalCenter: parent.verticalCenter
-        }
         PrimaryButton {
             text: "Apply title fixes"
             enabled: App.metadataSearch.titleFixProposals.length > 0 && !App.metadataSearch.searching
-            onClicked: App.applyTitleFix(syncBeetsField.checked)
+            onClicked: App.applyTitleFix()
         }
     }
 

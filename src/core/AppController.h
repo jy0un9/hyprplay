@@ -13,8 +13,8 @@
 #include "TrackMediaService.h"
 #include "TagService.h"
 #include "DiscogsService.h"
-#include "BeetsService.h"
 #include "ImportService.h"
+#include "ConvertService.h"
 #include "LyricsService.h"
 #include "MetadataSearchService.h"
 #include "LibraryEnrichmentService.h"
@@ -34,8 +34,8 @@ class AppController : public QObject {
     Q_PROPERTY(TrackListModel *playlistTracks READ playlistTracks CONSTANT)
     Q_PROPERTY(TagService *tags READ tags CONSTANT)
     Q_PROPERTY(DiscogsService *discogs READ discogs CONSTANT)
-    Q_PROPERTY(BeetsService *beets READ beets CONSTANT)
     Q_PROPERTY(ImportService *importInbox READ importInbox CONSTANT)
+    Q_PROPERTY(ConvertService *convert READ convert CONSTANT)
     Q_PROPERTY(LyricsService *lyrics READ lyrics CONSTANT)
     Q_PROPERTY(MetadataSearchService *metadataSearch READ metadataSearch CONSTANT)
     Q_PROPERTY(LibraryEnrichmentService *enrichment READ enrichment CONSTANT)
@@ -88,8 +88,8 @@ public:
     TrackListModel *playlistTracks() const { return m_playlistTracks; }
     TagService *tags() const { return m_tags; }
     DiscogsService *discogs() const { return m_discogs; }
-    BeetsService *beets() const { return m_beets; }
     ImportService *importInbox() const { return m_importInbox; }
+    ConvertService *convert() const { return m_convert; }
     LyricsService *lyrics() const { return m_lyrics; }
     MetadataSearchService *metadataSearch() const { return m_metadataSearch; }
     LibraryEnrichmentService *enrichment() const { return m_enrichment; }
@@ -183,10 +183,10 @@ public:
     Q_INVOKABLE bool saveTagEditor(const QVariantMap &fields);
     Q_INVOKABLE void openTagFetch(const QVariantMap &editorFields = {});
     Q_INVOKABLE void closeTagFetch();
-    Q_INVOKABLE bool applyTagFetch(bool syncBeets);
+    Q_INVOKABLE bool applyTagFetch();
     Q_INVOKABLE void openTitleFix();
     Q_INVOKABLE void closeTitleFix();
-    Q_INVOKABLE bool applyTitleFix(bool syncBeets);
+    Q_INVOKABLE bool applyTitleFix();
     Q_INVOKABLE void fetchDiscogsForSelectedArtist();
     Q_INVOKABLE void fetchDiscogsForAllArtistAlbums();
     Q_INVOKABLE void openDiscogsForSelectedAlbum();
@@ -196,13 +196,15 @@ public:
     Q_INVOKABLE void closeDiscogsForSelectedAlbum();
     Q_INVOKABLE void fetchSelectedDiscogsAlbum();
     Q_INVOKABLE void setAlbumDiscogsSelectedIndex(int index);
-    Q_INVOKABLE void saveSettings(const QString &libraryPaths, const QString &importInbox,
-                                  const QString &lyricsDir, const QString &beetsBinary,
-                                  bool beetsNomove, const QString &discogsToken,
-                                  const QString &uiFontFamily, int uiFontSize, bool scanOnLaunch,
-                                  bool libraryWatchEnabled, bool wasdNavigation,
-                                  bool tooltipsEnabled, bool lyricsNetease, bool lyricsPlain,
-                                  int opusBitrateKbps, const QString &importMode);
+    Q_INVOKABLE void applyLibraryPaths(const QString &paths);
+    Q_INVOKABLE void applyImportInbox(const QString &path);
+    Q_INVOKABLE void applyLyricsDir(const QString &path);
+    Q_INVOKABLE void applyScanning(bool scanOnLaunch, bool watchEnabled);
+    Q_INVOKABLE void applyUiFontSettings(const QString &family, int size);
+    Q_INVOKABLE void applyInteraction(bool wasdNavigation, bool tooltipsEnabled);
+    Q_INVOKABLE void applyLyricsProviders(bool netease, bool plain);
+    Q_INVOKABLE void applyConvertOptions(int opusBitrateKbps, bool deleteSource);
+    Q_INVOKABLE void applyDiscogsToken(const QString &token);
     Q_INVOKABLE void setDacPassthrough(bool enabled);
     Q_INVOKABLE void fetchLyricsForPlayingTrack();
     Q_INVOKABLE void fetchLyricsForTrackIndex(int index);
@@ -242,8 +244,6 @@ private:
     void onDiscogsReleaseFetched(const QString &artist, const QString &album, bool success);
     void fetchNextBulkDiscogsAlbum();
     void handleBulkDiscogsSearch(const QVariantList &results);
-    void syncFetchedTagsToBeets(const QVariantMap &fields, const QString &libraryArtist,
-                                const QString &libraryAlbum);
     void clearLibrarySelection();
     void selectAlbumDrillOut();
     void applyUiFont();
@@ -262,8 +262,8 @@ private:
     TrackListModel *m_playlistTracks = nullptr;
     TagService *m_tags = nullptr;
     DiscogsService *m_discogs = nullptr;
-    BeetsService *m_beets = nullptr;
     ImportService *m_importInbox = nullptr;
+    ConvertService *m_convert = nullptr;
     LyricsService *m_lyrics = nullptr;
     MetadataSearchService *m_metadataSearch = nullptr;
     LibraryEnrichmentService *m_enrichment = nullptr;

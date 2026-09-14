@@ -23,12 +23,12 @@ AppController::AppController(QObject *parent) : QObject(parent) {
     m_playlists = new PlaylistService(m_config, m_library, this);
     m_tags = new TagService(m_library, this);
     m_discogs = new DiscogsService(m_config, this);
-    m_beets = new BeetsService(m_config, this);
-    m_importInbox = new ImportService(m_config, m_library, m_tags, m_beets, this);
+    m_importInbox = new ImportService(m_config, m_library, m_tags, this);
+    m_convert = new ConvertService(m_config, m_library, this);
     m_lyrics = new LyricsService(m_config, this);
     m_metadataSearch = new MetadataSearchService(m_config, m_discogs, this);
     m_enrichment = new LibraryEnrichmentService(m_config, m_library, m_discogs, m_metadataSearch,
-                                               m_tags, m_beets, m_lyrics, this, this);
+                                               m_tags, m_lyrics, this, this);
     m_artists = new ArtistModel(this);
     m_tracks = new TrackListModel(this);
     m_playlistItems = new PlaylistListModel(this);
@@ -103,20 +103,6 @@ AppController::AppController(QObject *parent) : QObject(parent) {
             notify(QStringLiteral("Discogs: ") + status, QStringLiteral("error"));
         }
     });
-    connect(m_beets, &BeetsService::statusChanged, this, [this]() {
-        const QString status = m_beets->status();
-        if (status.isEmpty() || m_beets->busy()) {
-            return;
-        }
-        const QString lowered = status.toLower();
-        const bool isError = lowered.contains(QStringLiteral("fail"))
-                             || lowered.contains(QStringLiteral("error"))
-                             || lowered.contains(QStringLiteral("timed out"))
-                             || lowered.contains(QStringLiteral("not found"));
-        if (isError) {
-            notify(QStringLiteral("beets: ") + status, QStringLiteral("error"));
-        }
-    });
     connect(m_lyrics, &LyricsService::busyChanged, this, [this]() {
         if (m_lyrics->busy()) {
             return;
@@ -132,6 +118,10 @@ AppController::AppController(QObject *parent) : QObject(parent) {
     });
     connect(m_importInbox, &ImportService::importFinished, this, [this](bool success) {
         notify(success ? QStringLiteral("Import complete") : QStringLiteral("Import failed"),
+               success ? QStringLiteral("success") : QStringLiteral("error"));
+    });
+    connect(m_convert, &ConvertService::convertFinished, this, [this](bool success) {
+        notify(success ? QStringLiteral("Convert complete") : QStringLiteral("Convert failed"),
                success ? QStringLiteral("success") : QStringLiteral("error"));
     });
     connect(m_tags, &TagService::tagsSaved, this, [this]() {
@@ -1359,7 +1349,7 @@ void AppController::closeTagFetch() {
     emit tagFetchChanged();
 }
 
-bool AppController::applyTagFetch(bool syncBeets) {
+bool AppController::applyTagFetch() {
     const QVariantMap allFields = m_metadataSearch->checkedFields();
     if (allFields.isEmpty()) {
         return false;
@@ -1367,13 +1357,6 @@ bool AppController::applyTagFetch(bool syncBeets) {
 
     QVariantMap fileFields = allFields;
     fileFields.remove(QStringLiteral("mb_albumid"));
-
-    const QString libraryArtist = m_tagEditorMode == QStringLiteral("track")
-                                      ? m_tagEditorFields.value(QStringLiteral("artist")).toString()
-                                      : m_selectedArtist;
-    const QString libraryAlbum = m_tagEditorMode == QStringLiteral("track")
-                                     ? m_tagEditorFields.value(QStringLiteral("album")).toString()
-                                     : m_selectedAlbum;
 
     bool ok = false;
     if (m_tagEditorMode == QStringLiteral("album")) {
@@ -1390,9 +1373,6 @@ bool AppController::applyTagFetch(bool syncBeets) {
     }
 
     if (ok) {
-        if (syncBeets && m_beets->available()) {
-            syncFetchedTagsToBeets(allFields, libraryArtist, libraryAlbum);
-        }
         refreshArtists();
         refreshAlbums();
         refreshTracks();
@@ -1451,7 +1431,7 @@ void AppController::closeTitleFix() {
     emit titleFixChanged();
 }
 
-bool AppController::applyTitleFix(bool syncBeets) {
+bool AppController::applyTitleFix() {
     const QVariantList proposals = m_metadataSearch->checkedTitleFixProposals();
     if (proposals.isEmpty()) {
         notify(QStringLiteral("No title changes selected"), QStringLiteral("info"));
@@ -1475,9 +1455,6 @@ bool AppController::applyTitleFix(bool syncBeets) {
             continue;
         }
         ++updated;
-        if (syncBeets && m_beets->available()) {
-            m_beets->modifyByPath(path, fields);
-        }
     }
 
     refreshTracks();
@@ -1498,25 +1475,6 @@ bool AppController::applyTitleFix(bool syncBeets) {
         closeTitleFix();
     }
     return updated > 0;
-}
-
-void AppController::syncFetchedTagsToBeets(const QVariantMap &fields, const QString &libraryArtist,
-                                           const QString &libraryAlbum) {
-    if (m_tagEditorMode == QStringLiteral("track") && !m_tagEditorPath.isEmpty()) {
-        m_beets->modifyByPath(m_tagEditorPath, fields);
-        return;
-    }
-
-    const QStringList paths =
-        m_tagEditorMode == QStringLiteral("artist")
-            ? m_tags->artistTagPaths(libraryArtist)
-            : m_tags->albumTagPaths(libraryArtist, libraryAlbum);
-
-    if (m_tagEditorMode == QStringLiteral("album") && !libraryArtist.isEmpty() && !libraryAlbum.isEmpty()) {
-        m_beets->syncAlbumTags(libraryArtist, libraryAlbum, fields, paths);
-    } else if (m_tagEditorMode == QStringLiteral("artist") && !libraryArtist.isEmpty()) {
-        m_beets->syncArtistTags(libraryArtist, fields, paths);
-    }
 }
 
 void AppController::fetchDiscogsForSelectedArtist() {
@@ -1769,41 +1727,77 @@ void AppController::applyUiFont() {
     QGuiApplication::setFont(font);
 }
 
-void AppController::saveSettings(const QString &libraryPaths, const QString &importInbox,
-                                   const QString &lyricsDir, const QString &beetsBinary,
-                                   bool beetsNomove, const QString &discogsToken,
-                                   const QString &uiFontFamily, int uiFontSize, bool scanOnLaunch,
-                                   bool libraryWatchEnabled, bool wasdNavigation,
-                                   bool tooltipsEnabled, bool lyricsNetease, bool lyricsPlain,
-                                   int opusBitrateKbps, const QString &importMode) {
-    m_config->setLibraryPaths(libraryPaths);
-    m_config->setImportInbox(importInbox);
-    m_config->setLyricsDir(lyricsDir);
-    m_config->setBeetsBinary(beetsBinary);
-    m_config->setBeetsNomove(beetsNomove);
-    m_config->setImportMode(importMode);
-    m_config->setOpusBitrateKbps(opusBitrateKbps);
-    if (!uiFontFamily.trimmed().isEmpty()) {
-        m_config->setUiFontFamily(uiFontFamily.trimmed());
-    }
-    m_config->setUiFontSize(uiFontSize);
-    m_config->setScanOnLaunch(scanOnLaunch);
-    m_config->setLibraryWatchEnabled(libraryWatchEnabled);
-    m_config->setWasdNavigation(wasdNavigation);
-    m_config->setTooltipsEnabled(tooltipsEnabled);
-    m_config->setLyricsNeteaseEnabled(lyricsNetease);
-    m_config->setLyricsPlainEnabled(lyricsPlain);
-    if (!discogsToken.trimmed().isEmpty()) {
-        m_discogs->setToken(discogsToken.trimmed());
+void AppController::applyLibraryPaths(const QString &paths) {
+    const QStringList before = m_config->libraryPaths();
+    m_config->setLibraryPaths(paths);
+    if (m_config->libraryPaths() == before) {
+        return;
     }
     m_config->save();
-    applyUiFont();
-    m_library->setScanOnLaunch(m_config->scanOnLaunch());
-    m_library->setWatchEnabled(m_config->libraryWatchEnabled());
     m_library->ensureLibrary(m_config->libraryPaths());
     refreshArtists();
     reloadPlaylistsIfReady();
-    notify(QStringLiteral("Settings saved"), QStringLiteral("success"));
+    notify(QStringLiteral("Music folders updated"), QStringLiteral("success"));
+}
+
+void AppController::applyImportInbox(const QString &path) {
+    const QString before = m_config->importInbox();
+    m_config->setImportInbox(path);
+    if (m_config->importInbox() != before) {
+        m_config->save();
+    }
+}
+
+void AppController::applyLyricsDir(const QString &path) {
+    const QString before = m_config->lyricsDir();
+    m_config->setLyricsDir(path);
+    if (m_config->lyricsDir() != before) {
+        m_config->save();
+    }
+}
+
+void AppController::applyScanning(bool scanOnLaunch, bool watchEnabled) {
+    m_config->setScanOnLaunch(scanOnLaunch);
+    m_config->setLibraryWatchEnabled(watchEnabled);
+    m_config->save();
+    m_library->setScanOnLaunch(scanOnLaunch);
+    m_library->setWatchEnabled(watchEnabled);
+}
+
+void AppController::applyUiFontSettings(const QString &family, int size) {
+    const QString trimmed = family.trimmed();
+    if (!trimmed.isEmpty()) {
+        m_config->setUiFontFamily(trimmed);
+    }
+    m_config->setUiFontSize(size);
+    m_config->save();
+    applyUiFont();
+}
+
+void AppController::applyInteraction(bool wasdNavigation, bool tooltipsEnabled) {
+    m_config->setWasdNavigation(wasdNavigation);
+    m_config->setTooltipsEnabled(tooltipsEnabled);
+    m_config->save();
+}
+
+void AppController::applyLyricsProviders(bool netease, bool plain) {
+    m_config->setLyricsNeteaseEnabled(netease);
+    m_config->setLyricsPlainEnabled(plain);
+    m_config->save();
+}
+
+void AppController::applyConvertOptions(int opusBitrateKbps, bool deleteSource) {
+    m_config->setOpusBitrateKbps(opusBitrateKbps);
+    m_config->setConvertDeleteSource(deleteSource);
+    m_config->save();
+}
+
+void AppController::applyDiscogsToken(const QString &token) {
+    const QString trimmed = token.trimmed();
+    m_discogs->setToken(trimmed);
+    notify(trimmed.isEmpty() ? QStringLiteral("Discogs token cleared")
+                             : QStringLiteral("Discogs token saved"),
+           QStringLiteral("success"));
 }
 
 void AppController::setDacPassthrough(bool enabled) {

@@ -18,8 +18,9 @@ SOURCES += \
     src/core/PlaylistService.cpp \
     src/core/TagService.cpp \
     src/core/DiscogsService.cpp \
-    src/core/BeetsService.cpp \
     src/core/ImportService.cpp \
+    src/core/ConvertService.cpp \
+    src/core/OpusConvert.cpp \
     src/core/LyricsService.cpp \
     src/core/MetadataSearchService.cpp \
     src/core/LibraryEnrichmentService.cpp \
@@ -45,8 +46,9 @@ HEADERS += \
     src/core/PlaylistService.h \
     src/core/TagService.h \
     src/core/DiscogsService.h \
-    src/core/BeetsService.h \
     src/core/ImportService.h \
+    src/core/ConvertService.h \
+    src/core/OpusConvert.h \
     src/core/LyricsService.h \
     src/core/MetadataSearchService.h \
     src/core/LibraryEnrichmentService.h \

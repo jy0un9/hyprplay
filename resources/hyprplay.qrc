@@ -6,6 +6,7 @@
         <file alias="views/PlaylistsView.qml">../src/ui/qml/views/PlaylistsView.qml</file>
         <file alias="views/SettingsView.qml">../src/ui/qml/views/SettingsView.qml</file>
         <file alias="views/ImportView.qml">../src/ui/qml/views/ImportView.qml</file>
+        <file alias="views/ConvertView.qml">../src/ui/qml/views/ConvertView.qml</file>
         <file alias="components/NowPlayingBar.qml">../src/ui/qml/components/NowPlayingBar.qml</file>
         <file alias="components/WaveformSeekBar.qml">../src/ui/qml/components/WaveformSeekBar.qml</file>
         <file alias="components/KaraokeLyricsView.qml">../src/ui/qml/components/KaraokeLyricsView.qml</file>
@@ -34,5 +35,8 @@
         <file alias="components/AdaptiveMenu.qml">../src/ui/qml/components/AdaptiveMenu.qml</file>
         <file alias="components/ThemedMenuItem.qml">../src/ui/qml/components/ThemedMenuItem.qml</file>
         <file alias="components/SettingsNavItem.qml">../src/ui/qml/components/SettingsNavItem.qml</file>
+        <file alias="components/SettingsGroup.qml">../src/ui/qml/components/SettingsGroup.qml</file>
+        <file alias="components/SettingsRow.qml">../src/ui/qml/components/SettingsRow.qml</file>
+        <file alias="components/SettingsNote.qml">../src/ui/qml/components/SettingsNote.qml</file>
     </qresource>
 </RCC>

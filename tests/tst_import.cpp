@@ -1,7 +1,6 @@
 #include "AudioFixture.h"
 #include "TestEnv.h"
 
-#include "core/BeetsService.h"
 #include "core/ConfigService.h"
 #include "core/ImportService.h"
 #include "core/LibraryService.h"
@@ -44,20 +43,18 @@ void ImportTest::copyModeImportsAlbum() {
     config.load();
     config.setLibraryPaths(libraryRoot);
     config.setImportInbox(inbox);
-    config.setImportMode(QStringLiteral("copy"));
     config.save();
 
     LibraryService library;
     TagService tags(&library);
-    BeetsService beets(&config);
-    ImportService imports(&config, &library, &tags, &beets);
+    ImportService imports(&config, &library, &tags);
 
     imports.scanInbox();
     QTRY_VERIFY(imports.albums().size() >= 1);
     imports.setAllAlbumsSelected(true);
 
     QSignalSpy finished(&imports, &ImportService::importFinished);
-    imports.startImport(false);
+    imports.startImport();
     QVERIFY(finished.wait(120000));
     QVERIFY(finished.takeFirst().at(0).toBool());
 

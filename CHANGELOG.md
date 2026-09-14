@@ -5,6 +5,11 @@
 - Fix lyrics UI not reloading after a successful fetch (false “already present”)
 - Artists column header shows the selected artist name
 - Remove Genius lyrics provider; expand test suite
+- Remove beets integration
+- Split Import (copy into library) from Convert (FLAC→Opus) with separate settings
+- Redesigned Settings: flat grouped rows matching the rest of the UI, Preferences/Tools
+  navigation, live pipeline state for Enrich, and settings that save as you change them
+  instead of behind a Save button
 - Simpler README for install and everyday use
 
 ## 0.1.1

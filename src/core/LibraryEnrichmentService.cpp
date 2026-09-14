@@ -1,7 +1,6 @@
 #include "LibraryEnrichmentService.h"
 
 #include "AppController.h"
-#include "BeetsService.h"
 #include "ConfigService.h"
 #include "DiscogsService.h"
 #include "LibraryService.h"
@@ -22,16 +21,14 @@ constexpr int kDiscogsStepDelayMs = 2000;
 LibraryEnrichmentService::LibraryEnrichmentService(ConfigService *config, LibraryService *library,
                                                    DiscogsService *discogs,
                                                    MetadataSearchService *metadataSearch,
-                                                   TagService *tags, BeetsService *beets,
-                                                   LyricsService *lyrics, AppController *app,
-                                                   QObject *parent)
+                                                   TagService *tags, LyricsService *lyrics,
+                                                   AppController *app, QObject *parent)
     : QObject(parent)
     , m_config(config)
     , m_library(library)
     , m_discogs(discogs)
     , m_metadataSearch(metadataSearch)
     , m_tags(tags)
-    , m_beets(beets)
     , m_lyrics(lyrics)
     , m_app(app)
 {
@@ -901,7 +898,6 @@ void LibraryEnrichmentService::applyTitleFixProposals(bool countAsAuto)
     const QVariantList proposals = m_metadataSearch->checkedTitleFixProposals();
     int updated = 0;
     int failed = 0;
-    const bool syncBeets = m_beets && m_beets->available();
     for (const QVariant &proposalValue : proposals) {
         const QVariantMap proposal = proposalValue.toMap();
         const QString path = proposal.value(QStringLiteral("path")).toString();
@@ -917,9 +913,6 @@ void LibraryEnrichmentService::applyTitleFixProposals(bool countAsAuto)
             continue;
         }
         ++updated;
-        if (syncBeets) {
-            m_beets->modifyByPath(path, fields);
-        }
     }
 
     if (countAsAuto) {

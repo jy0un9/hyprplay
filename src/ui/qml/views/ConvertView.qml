@@ -4,9 +4,8 @@ import QtQuick.Layouts
 import components 1.0
 
 Pane {
-    id: importView
+    id: convertView
     property bool embedded: false
-    signal configureRequested()
 
     padding: embedded ? 0 : Theme.spaceLg
 
@@ -17,15 +16,15 @@ Pane {
         spacing: Theme.spaceMd
 
         Label {
-            text: "Import Inbox"
+            text: "Convert FLAC → Opus"
             font.pixelSize: Theme.fontDisplay
             font.bold: true
             color: Theme.foreground
-            visible: !importView.embedded
+            visible: !convertView.embedded
         }
 
         Label {
-            text: App.importInbox.status
+            text: App.convert.status
             visible: text.length > 0
             wrapMode: Text.WordWrap
             opacity: 0.75
@@ -38,36 +37,36 @@ Pane {
             spacing: Theme.spaceSm
 
             Button {
-                text: "Scan Inbox"
-                enabled: !App.importInbox.importing
-                onClicked: App.importInbox.scanInbox()
+                text: "Scan library"
+                enabled: !App.convert.converting
+                onClicked: App.convert.scanLibrary()
             }
 
             Button {
                 text: "Select all"
-                enabled: !App.importInbox.importing && App.importInbox.albums.length > 0
-                onClicked: App.importInbox.setAllAlbumsSelected(true)
+                enabled: !App.convert.converting && App.convert.albums.length > 0
+                onClicked: App.convert.setAllAlbumsSelected(true)
             }
 
             Button {
                 text: "Skip all"
-                enabled: !App.importInbox.importing && App.importInbox.albums.length > 0
-                onClicked: App.importInbox.setAllAlbumsSelected(false)
+                enabled: !App.convert.converting && App.convert.albums.length > 0
+                onClicked: App.convert.setAllAlbumsSelected(false)
             }
 
             PrimaryButton {
-                text: App.importInbox.importing
-                      ? "Importing…"
-                      : ("Import selected (" + App.importInbox.selectedCount + ")")
-                enabled: !App.importInbox.importing && App.importInbox.selectedCount > 0
-                onClicked: App.importInbox.startImport()
+                text: App.convert.converting
+                      ? "Converting…"
+                      : ("Convert selected (" + App.convert.selectedCount + ")")
+                enabled: !App.convert.converting && App.convert.selectedCount > 0
+                onClicked: App.convert.startConvert()
             }
 
             Button {
                 text: "Cancel"
-                visible: App.importInbox.importing
-                enabled: !App.importInbox.awaitingDecision
-                onClicked: App.importInbox.cancelImport()
+                visible: App.convert.converting
+                enabled: !App.convert.awaitingDecision
+                onClicked: App.convert.cancelConvert()
             }
         }
 
@@ -75,35 +74,21 @@ Pane {
             Layout.fillWidth: true
             from: 0
             to: 100
-            value: App.importInbox.progress
-            visible: App.importInbox.importing || App.importInbox.progress > 0
+            value: App.convert.progress
+            visible: App.convert.converting || App.convert.progress > 0
         }
 
         Label {
-            visible: App.importInbox.importing && App.importInbox.tracksTotal > 0
-            text: "Tracks " + App.importInbox.tracksDone + " / " + App.importInbox.tracksTotal
+            visible: App.convert.converting && App.convert.tracksTotal > 0
+            text: "Tracks " + App.convert.tracksDone + " / " + App.convert.tracksTotal
             opacity: 0.55
             font.pixelSize: Theme.fontCaption
             color: Theme.foreground
-        }
-
-        Label {
-            // In Settings the inbox path is already shown by the row above.
-            visible: !importView.embedded
-            text: "Inbox: " + (App.config.importInbox.length > 0 ? App.config.importInbox : "(not configured)")
-                  + (App.importInbox.destinationRoot.length > 0
-                     ? ("  →  Library: " + App.importInbox.destinationRoot)
-                     : "")
-            opacity: 0.55
-            font.pixelSize: Theme.fontCaption
-            color: Theme.foreground
-            Layout.fillWidth: true
-            elide: Text.ElideMiddle
         }
 
         Label {
             visible: albumList.count > 0
-            text: "Uncheck albums to skip. Tracks are copied into your library as-is. Failed copies pause so you can fix — nothing broken is written."
+            text: "Uncheck albums to skip. Writes Opus next to each FLAC. Failed encodes pause — partial files are never left behind."
             opacity: 0.6
             font.pixelSize: Theme.fontCaption
             color: Theme.foreground
@@ -117,15 +102,15 @@ Pane {
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            model: App.importInbox.albums
-            visible: count > 0 || App.importInbox.importing
+            model: App.convert.albums
+            visible: count > 0 || App.convert.converting
             spacing: 2
-            enabled: !App.importInbox.awaitingDecision
+            enabled: !App.convert.awaitingDecision
 
             delegate: ItemDelegate {
                 id: albumDelegate
                 width: albumList.width
-                enabled: !App.importInbox.importing
+                enabled: !App.convert.converting
                 padding: Theme.spaceSm
                 Accessible.name: model.artist + " — " + model.album
                 Accessible.role: Accessible.CheckBox
@@ -145,9 +130,9 @@ Pane {
                     CheckBox {
                         id: selectBox
                         checked: model.selected !== false
-                        enabled: !App.importInbox.importing
+                        enabled: !App.convert.converting
                         Accessible.name: "Select " + model.artist + " — " + model.album
-                        onClicked: App.importInbox.setAlbumSelected(index, checked)
+                        onClicked: App.convert.setAlbumSelected(index, checked)
                     }
 
                     ColumnLayout {
@@ -164,10 +149,10 @@ Pane {
                         }
 
                         Label {
-                            text: model.trackCount + " track(s)  →  "
+                            text: model.trackCount + " FLAC"
                                   + (model.destDir && model.destDir.length > 0
-                                     ? model.destDir
-                                     : "(set a library path in Settings)")
+                                     ? ("  ·  " + model.destDir)
+                                     : "")
                             opacity: selectBox.checked ? 0.6 : 0.35
                             font.pixelSize: Theme.fontCaption
                             color: Theme.foreground
@@ -182,20 +167,11 @@ Pane {
         EmptyState {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            iconName: "folder-download-symbolic"
-            title: App.config.importInbox.length > 0 ? "Inbox is empty" : "No inbox folder set"
-            subtitle: App.config.importInbox.length > 0
-                      ? "Drop albums into the inbox folder, then scan."
-                      : "Choose an inbox folder in Import setup."
-            actionText: App.config.importInbox.length > 0 ? "" : "Configure inbox"
-            loading: App.importInbox.importing
-            visible: albumList.count === 0 && !App.importInbox.importing
-            onActionClicked: {
-                if (importView.embedded)
-                    importView.configureRequested()
-                else
-                    App.showSettings()
-            }
+            iconName: "audio-x-generic-symbolic"
+            title: "No FLAC albums"
+            subtitle: "Scan the library after importing FLAC, or import first."
+            loading: App.convert.converting
+            visible: albumList.count === 0 && !App.convert.converting
         }
     }
 
@@ -206,24 +182,24 @@ Pane {
         modal: true
         Overlay.modal: ThemedModalScrim {}
         closePolicy: Popup.NoAutoClose
-        title: App.importInbox.decisionTitle.length > 0
-               ? App.importInbox.decisionTitle
-               : "Import copy failed"
+        title: App.convert.decisionTitle.length > 0
+               ? App.convert.decisionTitle
+               : "Conversion failed"
         width: Math.min(520, Overlay.overlay ? Overlay.overlay.width - 48 : 520)
 
         contentItem: ColumnLayout {
             spacing: Theme.spaceMd
 
             Label {
-                text: App.importInbox.decisionMessage
+                text: App.convert.decisionMessage
                 wrapMode: Text.WordWrap
                 color: Theme.foreground
                 Layout.fillWidth: true
             }
 
             Label {
-                visible: App.importInbox.decisionDetail.length > 0
-                text: App.importInbox.decisionDetail
+                visible: App.convert.decisionDetail.length > 0
+                text: App.convert.decisionDetail
                 wrapMode: Text.WrapAnywhere
                 elide: Text.ElideMiddle
                 maximumLineCount: 3
@@ -234,7 +210,7 @@ Pane {
             }
 
             Label {
-                text: "Fix the problem and Retry, or skip. Nothing partial is left in the library."
+                text: "Fix the problem and Retry, or skip. Partial Opus files are never left in the library."
                 wrapMode: Text.WordWrap
                 opacity: 0.7
                 font.pixelSize: Theme.fontCaption
@@ -248,7 +224,7 @@ Pane {
                 text: "Retry"
                 DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
                 onClicked: {
-                    App.importInbox.resolveImportDecision("retry")
+                    App.convert.resolveConvertDecision("retry")
                     decisionDialog.close()
                 }
             }
@@ -256,7 +232,7 @@ Pane {
                 text: "Skip track"
                 DialogButtonBox.buttonRole: DialogButtonBox.ActionRole
                 onClicked: {
-                    App.importInbox.resolveImportDecision("skipTrack")
+                    App.convert.resolveConvertDecision("skipTrack")
                     decisionDialog.close()
                 }
             }
@@ -264,30 +240,30 @@ Pane {
                 text: "Skip album"
                 DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
                 onClicked: {
-                    App.importInbox.resolveImportDecision("skipAlbum")
+                    App.convert.resolveConvertDecision("skipAlbum")
                     decisionDialog.close()
                 }
             }
             Button {
-                text: "Abort import"
+                text: "Abort"
                 DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
                 onClicked: {
-                    App.importInbox.resolveImportDecision("abort")
+                    App.convert.resolveConvertDecision("abort")
                     decisionDialog.close()
                 }
             }
         }
 
         onRejected: {
-            if (App.importInbox.awaitingDecision)
-                App.importInbox.resolveImportDecision("abort")
+            if (App.convert.awaitingDecision)
+                App.convert.resolveConvertDecision("abort")
         }
     }
 
     Connections {
-        target: App.importInbox
+        target: App.convert
         function onDecisionChanged() {
-            if (App.importInbox.awaitingDecision)
+            if (App.convert.awaitingDecision)
                 decisionDialog.open()
             else if (decisionDialog.visible)
                 decisionDialog.close()

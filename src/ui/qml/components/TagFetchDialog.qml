@@ -106,17 +106,10 @@ Dialog {
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             onClicked: tagFetchDialog.reject()
         }
-        CheckBox {
-            id: syncBeetsField
-            text: "Update beets"
-            visible: App.beets.available
-            checked: App.beets.available
-            anchors.verticalCenter: parent.verticalCenter
-        }
         PrimaryButton {
             text: "Apply selected tags"
             enabled: App.metadataSearch.fieldChoices.length > 0 && !App.metadataSearch.searching
-            onClicked: App.applyTagFetch(syncBeetsField.checked)
+            onClicked: App.applyTagFetch()
         }
     }
 

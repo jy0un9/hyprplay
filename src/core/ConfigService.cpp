@@ -153,13 +153,16 @@ void ConfigService::load() {
                 m_importInbox = unquote(value);
             }
         } else if (section == QLatin1String("import")) {
+            // Legacy import section — mode ignored (convert is a separate feature).
             if (key == QLatin1String("opus_bitrate_kbps")) {
                 m_opusBitrateKbps = qBound(48, value.toInt(), 512);
-            } else if (key == QLatin1String("mode")) {
-                const QString mode = unquote(value).trimmed().toLower();
-                if (mode == QLatin1String("convert_opus") || mode == QLatin1String("copy")) {
-                    m_importMode = mode;
-                }
+            }
+        } else if (section == QLatin1String("convert")) {
+            if (key == QLatin1String("opus_bitrate_kbps")) {
+                m_opusBitrateKbps = qBound(48, value.toInt(), 512);
+            } else if (key == QLatin1String("delete_source")) {
+                m_convertDeleteSource =
+                    value != QLatin1String("false") && value != QLatin1String("0");
             }
         } else if (section == QLatin1String("playlists")) {
             if (key == QLatin1String("dir")) {
@@ -179,11 +182,7 @@ void ConfigService::load() {
                 m_playback.audioDevice = unquote(value);
             }
         } else if (section == QLatin1String("beets")) {
-            if (key == QLatin1String("binary")) {
-                m_beetsBinary = unquote(value);
-            } else if (key == QLatin1String("nomove")) {
-                m_beetsNomove = value != QLatin1String("false") && value != QLatin1String("0");
-            }
+            // Legacy section — ignored (beets integration removed).
         } else if (section == QLatin1String("ui")) {
             if (key == QLatin1String("font_family")) {
                 m_uiFontFamily = unquote(value);
@@ -275,9 +274,9 @@ void ConfigService::save() {
     }
     out << "\n";
 
-    out << "[import]\n";
-    out << "mode = \"" << m_importMode << "\"\n";
-    out << "opus_bitrate_kbps = " << m_opusBitrateKbps << "\n\n";
+    out << "[convert]\n";
+    out << "opus_bitrate_kbps = " << m_opusBitrateKbps << "\n";
+    out << "delete_source = " << (m_convertDeleteSource ? "true" : "false") << "\n\n";
 
     out << "[playlists]\n";
     out << "dir = \"" << m_playlistsDir << "\"\n\n";
@@ -291,10 +290,6 @@ void ConfigService::save() {
         out << "audio_device = \"" << m_playback.audioDevice << "\"\n";
     }
     out << "\n";
-
-    out << "[beets]\n";
-    out << "binary = \"" << m_beetsBinary << "\"\n";
-    out << "nomove = " << (m_beetsNomove ? "true" : "false") << "\n\n";
 
     out << "[ui]\n";
     out << "font_family = \"" << m_uiFontFamily << "\"\n";
@@ -484,18 +479,6 @@ void ConfigService::setImportInbox(const QString &path) {
     emit configChanged();
 }
 
-void ConfigService::setImportMode(const QString &mode) {
-    const QString normalized = mode.trimmed().toLower();
-    const QString resolved = (normalized == QLatin1String("convert_opus"))
-                                 ? QStringLiteral("convert_opus")
-                                 : QStringLiteral("copy");
-    if (m_importMode == resolved) {
-        return;
-    }
-    m_importMode = resolved;
-    emit configChanged();
-}
-
 void ConfigService::setOpusBitrateKbps(int kbps) {
     kbps = qBound(48, kbps, 512);
     if (m_opusBitrateKbps == kbps) {
@@ -505,20 +488,11 @@ void ConfigService::setOpusBitrateKbps(int kbps) {
     emit configChanged();
 }
 
-void ConfigService::setBeetsBinary(const QString &binary) {
-    const QString trimmed = binary.trimmed().isEmpty() ? QStringLiteral("beet") : binary.trimmed();
-    if (m_beetsBinary == trimmed) {
+void ConfigService::setConvertDeleteSource(bool enabled) {
+    if (m_convertDeleteSource == enabled) {
         return;
     }
-    m_beetsBinary = trimmed;
-    emit configChanged();
-}
-
-void ConfigService::setBeetsNomove(bool nomove) {
-    if (m_beetsNomove == nomove) {
-        return;
-    }
-    m_beetsNomove = nomove;
+    m_convertDeleteSource = enabled;
     emit configChanged();
 }
 

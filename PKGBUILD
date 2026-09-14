@@ -16,7 +16,6 @@ depends=(
 )
 makedepends=('qt6-tools')
 optdepends=(
-  'beets: optional autotag during import'
   'opus-tools: FLAC→Opus convert import mode (opusenc)'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")

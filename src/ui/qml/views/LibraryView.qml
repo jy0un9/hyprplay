@@ -286,6 +286,7 @@ Pane {
                         }
 
                         Label {
+                            id: artistsHeaderDetail
                             text: {
                                 if (App.selectedArtist.length > 0)
                                     return App.selectedArtist
@@ -294,14 +295,23 @@ Pane {
                                            + (artistList.count === 1 ? " artist" : " artists")
                                 return " "
                             }
-                            font.pixelSize: Theme.fontCaption
-                            opacity: 0.5
+                            font.pixelSize: App.selectedArtist.length > 0
+                                            ? Theme.fontHeading : Theme.fontCaption
+                            font.bold: App.selectedArtist.length > 0
+                            opacity: App.selectedArtist.length > 0 ? 1.0 : 0.5
                             color: Theme.foreground
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                             visible: !App.librarySearchOpen
                                      || App.librarySearchQuery.trimmed().length === 0
                                      || App.librarySearchScope !== "artists"
+                            HoverHandler { id: artistsHeaderHover }
+                            ElisionPopup {
+                                visible: artistsHeaderHover.hovered
+                                         && artistsHeaderDetail.truncated
+                                         && App.selectedArtist.length > 0
+                                text: artistsHeaderDetail.text
+                            }
                         }
 
                         Label {

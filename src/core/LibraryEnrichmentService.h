@@ -9,7 +9,6 @@
 #include <functional>
 
 class AppController;
-class BeetsService;
 class ConfigService;
 class DiscogsService;
 class LibraryService;
@@ -41,7 +40,7 @@ class LibraryEnrichmentService : public QObject {
 public:
     explicit LibraryEnrichmentService(ConfigService *config, LibraryService *library,
                                       DiscogsService *discogs, MetadataSearchService *metadataSearch,
-                                      TagService *tags, BeetsService *beets, LyricsService *lyrics,
+                                      TagService *tags, LyricsService *lyrics,
                                       AppController *app, QObject *parent = nullptr);
 
     bool active() const { return m_active; }
@@ -132,7 +131,6 @@ private:
     DiscogsService *m_discogs = nullptr;
     MetadataSearchService *m_metadataSearch = nullptr;
     TagService *m_tags = nullptr;
-    BeetsService *m_beets = nullptr;
     LyricsService *m_lyrics = nullptr;
     AppController *m_app = nullptr;
 

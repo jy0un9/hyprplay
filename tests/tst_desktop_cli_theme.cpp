@@ -26,16 +26,18 @@ void DesktopCliThemeTest::configRoundTrip() {
     ConfigService config;
     config.load();
     config.setLibraryPaths(env.libraryRoot());
-    config.setImportMode(QStringLiteral("copy"));
     config.setSeekStepSecs(7);
     config.setWasdNavigation(true);
+    config.setOpusBitrateKbps(192);
+    config.setConvertDeleteSource(false);
     config.save();
 
     ConfigService again;
     again.load();
     QCOMPARE(again.seekStepSecs(), 7);
     QVERIFY(again.wasdNavigation());
-    QCOMPARE(again.importMode(), QStringLiteral("copy"));
+    QCOMPARE(again.opusBitrateKbps(), 192);
+    QVERIFY(!again.convertDeleteSource());
 }
 
 void DesktopCliThemeTest::secretsFilePermissions() {

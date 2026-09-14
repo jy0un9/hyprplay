@@ -10,6 +10,7 @@ int runPlaybackTests(int argc, char **argv);
 int runTrackMediaTests(int argc, char **argv);
 int runPlaylistServiceTests(int argc, char **argv);
 int runImportTests(int argc, char **argv);
+int runConvertTests(int argc, char **argv);
 int runTagServiceTests(int argc, char **argv);
 int runLyricsServiceTests(int argc, char **argv);
 int runDiscogsRankTests(int argc, char **argv);
@@ -39,6 +40,7 @@ int main(int argc, char **argv) {
     status |= runTrackMediaTests(argc, argv);
     status |= runPlaylistServiceTests(argc, argv);
     status |= runImportTests(argc, argv);
+    status |= runConvertTests(argc, argv);
     status |= runTagServiceTests(argc, argv);
     status |= runLyricsServiceTests(argc, argv);
     status |= runDiscogsRankTests(argc, argv);

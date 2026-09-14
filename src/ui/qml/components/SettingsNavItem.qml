@@ -7,59 +7,62 @@ AbstractButton {
 
     property string iconName: ""
     property bool selected: false
+    property string badge: ""
 
-    implicitHeight: 48
+    implicitHeight: 32
     Accessible.name: text
     Accessible.role: Accessible.PageTab
     Accessible.checkable: true
     Accessible.checked: selected
 
     contentItem: RowLayout {
-        spacing: Theme.spaceMd
+        spacing: Theme.spaceSm
 
         AppIcon {
             name: control.iconName
-            size: 19
+            size: 15
             iconColor: control.selected ? Theme.accent : Theme.foreground
-            opacityFactor: control.selected ? 1 : 0.7
+            opacityFactor: control.selected ? 1 : 0.55
         }
 
         Label {
             text: control.text
-            color: control.selected ? Theme.foreground : Theme.muted
+            color: control.selected ? Theme.accent : Theme.foreground
+            opacity: control.selected ? 1 : 0.8
             font.pixelSize: Theme.fontBody
             font.weight: control.selected ? Font.DemiBold : Font.Normal
             elide: Text.ElideRight
             Layout.fillWidth: true
         }
+
+        Label {
+            text: control.badge
+            visible: control.badge.length > 0
+            color: Theme.accent
+            font.pixelSize: Theme.fontCaption
+        }
     }
 
     background: Rectangle {
-        radius: Theme.radiusMd
         color: control.selected
-               ? Theme.surface
+               ? Theme.rgba(Theme.selection, 0.9)
                : (control.hovered || control.pressed
-                  ? Theme.rgba(Theme.selection, 0.82)
+                  ? Theme.rgba(Theme.selection, 0.5)
                   : "transparent")
-        border.width: control.selected ? 1 : 0
-        border.color: Theme.rgba(Theme.border, 0.35)
 
         Rectangle {
-            width: 3
-            height: parent.height - 16
+            width: 2
+            height: parent.height
             anchors.left: parent.left
-            anchors.leftMargin: 2
-            anchors.verticalCenter: parent.verticalCenter
-            radius: 2
             color: Theme.accent
             visible: control.selected
         }
 
         Behavior on color {
-            ColorAnimation { duration: 120 }
+            ColorAnimation { duration: 110 }
         }
     }
 
-    leftPadding: Theme.spaceMd + 4
+    leftPadding: Theme.spaceMd
     rightPadding: Theme.spaceMd
 }

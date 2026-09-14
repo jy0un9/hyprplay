@@ -13,3 +13,6 @@ AdaptiveMenu 1.0 AdaptiveMenu.qml
 ThemedMenuItem 1.0 ThemedMenuItem.qml
 ElisionPopup 1.0 ElisionPopup.qml
 SettingsNavItem 1.0 SettingsNavItem.qml
+SettingsGroup 1.0 SettingsGroup.qml
+SettingsRow 1.0 SettingsRow.qml
+SettingsNote 1.0 SettingsNote.qml
