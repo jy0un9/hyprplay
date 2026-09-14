@@ -1,5 +1,7 @@
 #include "LibraryService.h"
 
+#include "AudioFormats.h"
+
 #include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
@@ -42,10 +44,7 @@ QString cacheDbPath() {
 }
 
 bool isAudioFile(const QString &path) {
-    const QString lower = path.toLower();
-    return lower.endsWith(QLatin1String(".flac")) || lower.endsWith(QLatin1String(".opus"))
-           || lower.endsWith(QLatin1String(".mp3")) || lower.endsWith(QLatin1String(".m4a"))
-           || lower.endsWith(QLatin1String(".aac"));
+    return isSupportedAudioFile(path);
 }
 
 bool pathUnderRoots(const QString &path, const QStringList &roots) {

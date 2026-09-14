@@ -6,12 +6,18 @@ Qt6/QML player. Target `hyprplay-bin`, launcher `hyprplay`.
 
 Installed copy is under `/usr/local` — a repo build alone will not update the app you launch.
 
+**After every change, the agent must build and install** (not just compile in-tree):
+
 ```bash
 cd /home/jy0un9/Documents/qt-music
 qmake6 hyprplay.pro
 make -j$(nproc)
-sudo make install   # user runs this; agent cannot sudo-auth
+pkexec make -C /home/jy0un9/Documents/qt-music install
 ```
+
+(or `sudo make install` from the repo root)
+
+If `pkexec`/`sudo` cannot authenticate in-session, ask the user to approve the prompt / run install, then continue.
 
 Optional: `PREFIX=$HOME/.local`. Prefer one prefix only.
 

@@ -2,6 +2,7 @@ int runFuzzyMatchTests(int argc, char **argv);
 int runLrcParserTests(int argc, char **argv);
 int runPlaylistM3uTests(int argc, char **argv);
 int runLyricsParsersTests(int argc, char **argv);
+int runAudioFormatsTests(int argc, char **argv);
 
 int main(int argc, char **argv) {
     int status = 0;
@@ -9,5 +10,6 @@ int main(int argc, char **argv) {
     status |= runLrcParserTests(argc, argv);
     status |= runPlaylistM3uTests(argc, argv);
     status |= runLyricsParsersTests(argc, argv);
+    status |= runAudioFormatsTests(argc, argv);
     return status;
 }

@@ -57,6 +57,7 @@ HEADERS += \
     src/core/PlaylistM3u.h \
     src/core/LyricsParsers.h \
     src/core/FuzzyMatch.h \
+    src/core/AudioFormats.h \
     src/models/PlaylistListModel.h \
     src/models/ArtistModel.h \
     src/models/TrackListModel.h \

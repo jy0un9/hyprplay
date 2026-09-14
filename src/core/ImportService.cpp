@@ -1,5 +1,6 @@
 #include "ImportService.h"
 
+#include "AudioFormats.h"
 #include "BeetsService.h"
 #include "ConfigService.h"
 #include "LibraryService.h"
@@ -32,10 +33,7 @@ const QStringList kCoverNames = {
 };
 
 bool isImportableAudio(const QString &path) {
-    const QString lower = path.toLower();
-    return lower.endsWith(QStringLiteral(".flac")) || lower.endsWith(QStringLiteral(".opus"))
-           || lower.endsWith(QStringLiteral(".mp3")) || lower.endsWith(QStringLiteral(".m4a"))
-           || lower.endsWith(QStringLiteral(".aac"));
+    return isSupportedAudioFile(path);
 }
 
 bool isFlac(const QString &path) {

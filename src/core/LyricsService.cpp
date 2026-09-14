@@ -31,8 +31,8 @@ constexpr char kNeteaseSearch[] = "https://music.163.com/api/search/get";
 constexpr char kNeteaseLyric[] = "https://music.163.com/api/song/lyric";
 constexpr char kOvBase[] = "https://api.lyrics.ovh/v1";
 constexpr char kGeniusSearch[] = "https://api.genius.com/search";
-constexpr char kUserAgent[] = "hyprplay/0.1.0 (+https://github.com/jy0un9/hyprplay)";
-constexpr char kClientIdent[] = "hyprplay/0.1.0 (+https://github.com/jy0un9/hyprplay)";
+constexpr char kUserAgent[] = "hyprplay/0.1.1 (+https://github.com/jy0un9/hyprplay)";
+constexpr char kClientIdent[] = "hyprplay/0.1.1 (+https://github.com/jy0un9/hyprplay)";
 constexpr char kBrowserAgent[] =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/126.0 Safari/537.36";
@@ -323,9 +323,10 @@ bool LyricsService::providerUsable(Provider provider, const QString &trackPath) 
         return enabled && !plainSidecarExists(trackPath);
     }
     case Provider::Genius: {
-        const bool enabled = m_config ? m_config->lyricsPlainEnabled() : true;
-        return enabled && !plainSidecarExists(trackPath) && !m_geniusDead
-            && !loadGeniusToken().isEmpty();
+        // Genius has no lyrics API; the old path scraped song pages with a
+        // browser UA. Disabled for public releases — use LRCLIB / optional
+        // plain-text providers instead.
+        return false;
     }
     }
     return false;

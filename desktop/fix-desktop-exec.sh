@@ -5,4 +5,4 @@
 set -eu
 file="$1"
 prefix="$2"
-sed -i "s|^Exec=.*|Exec=${prefix}/bin/hyprplay|;s|^TryExec=.*|TryExec=${prefix}/bin/hyprplay|" "$file"
+sed -i "s|^Exec=.*|Exec=${prefix}/bin/hyprplay %U|;s|^TryExec=.*|TryExec=${prefix}/bin/hyprplay|" "$file"

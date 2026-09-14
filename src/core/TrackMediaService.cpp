@@ -23,6 +23,12 @@
 #include <taglib/flacproperties.h>
 #include <taglib/fileref.h>
 #include <taglib/opusfile.h>
+#include <taglib/vorbisfile.h>
+#include <taglib/mpegfile.h>
+#include <taglib/id3v2tag.h>
+#include <taglib/attachedpictureframe.h>
+#include <taglib/mp4file.h>
+#include <taglib/mp4coverart.h>
 
 namespace {
 
@@ -152,6 +158,90 @@ QString extractOpusArt(const QString &path, const QString &key) {
     return {};
 }
 
+QString extractVorbisArt(const QString &path, const QString &key) {
+    TagLib::Ogg::Vorbis::File file(QFile::encodeName(path).constData());
+    if (!file.isValid() || !file.tag()) {
+        return {};
+    }
+    const auto pictures = file.tag()->pictureList();
+    for (const auto *picture : pictures) {
+        const QByteArray bytes = pictureBytes(picture);
+        const QString mime = QString::fromStdString(picture->mimeType().to8Bit(true));
+        const QString url = saveArtBytes(bytes, key, mime);
+        if (!url.isEmpty()) {
+            return url;
+        }
+    }
+    return {};
+}
+
+QString extractMpegArt(const QString &path, const QString &key) {
+    TagLib::MPEG::File file(QFile::encodeName(path).constData());
+    if (!file.isValid() || !file.ID3v2Tag()) {
+        return {};
+    }
+    const TagLib::ID3v2::FrameList frames = file.ID3v2Tag()->frameListMap()["APIC"];
+    for (const auto *frame : frames) {
+        const auto *picture = dynamic_cast<const TagLib::ID3v2::AttachedPictureFrame *>(frame);
+        if (!picture) {
+            continue;
+        }
+        const TagLib::ByteVector data = picture->picture();
+        const QByteArray bytes(data.data(), static_cast<int>(data.size()));
+        const QString mime = QString::fromStdString(picture->mimeType().to8Bit(true));
+        const QString url = saveArtBytes(bytes, key, mime);
+        if (!url.isEmpty()) {
+            return url;
+        }
+    }
+    return {};
+}
+
+QString extractMp4Art(const QString &path, const QString &key) {
+    TagLib::MP4::File file(QFile::encodeName(path).constData());
+    if (!file.isValid() || !file.tag()) {
+        return {};
+    }
+    const TagLib::MP4::ItemMap &items = file.tag()->itemMap();
+    const auto it = items.find("covr");
+    if (it == items.end()) {
+        return {};
+    }
+    const TagLib::MP4::CoverArtList covers = it->second.toCoverArtList();
+    for (const auto &cover : covers) {
+        const TagLib::ByteVector data = cover.data();
+        const QByteArray bytes(data.data(), static_cast<int>(data.size()));
+        const QString mime = cover.format() == TagLib::MP4::CoverArt::PNG
+                                 ? QStringLiteral("image/png")
+                                 : QStringLiteral("image/jpeg");
+        const QString url = saveArtBytes(bytes, key, mime);
+        if (!url.isEmpty()) {
+            return url;
+        }
+    }
+    return {};
+}
+
+QString extractEmbeddedArt(const QString &path, const QString &key) {
+    const QString lower = path.toLower();
+    if (lower.endsWith(QStringLiteral(".flac"))) {
+        return extractFlacArt(path, key);
+    }
+    if (lower.endsWith(QStringLiteral(".opus"))) {
+        return extractOpusArt(path, key);
+    }
+    if (lower.endsWith(QStringLiteral(".ogg")) || lower.endsWith(QStringLiteral(".oga"))) {
+        return extractVorbisArt(path, key);
+    }
+    if (lower.endsWith(QStringLiteral(".mp3"))) {
+        return extractMpegArt(path, key);
+    }
+    if (lower.endsWith(QStringLiteral(".m4a")) || lower.endsWith(QStringLiteral(".aac"))) {
+        return extractMp4Art(path, key);
+    }
+    return {};
+}
+
 
 } // namespace
 
@@ -199,6 +289,25 @@ QString TrackMediaService::qualityLabelForPath(const QString &path) {
             }
         }
         return QStringLiteral("Opus");
+    }
+
+    if (lower.endsWith(QStringLiteral(".ogg")) || lower.endsWith(QStringLiteral(".oga"))) {
+        TagLib::Ogg::Vorbis::File file(QFile::encodeName(path).constData());
+        if (file.isValid() && file.audioProperties()) {
+            const TagLib::AudioProperties *props = file.audioProperties();
+            const int bitrate = props->bitrate();
+            const QString rate = formatSampleRateKhz(static_cast<int>(props->sampleRate()));
+            if (bitrate > 0 && !rate.isEmpty()) {
+                return QStringLiteral("Ogg %1 kbps / %2 kHz").arg(bitrate).arg(rate);
+            }
+            if (bitrate > 0) {
+                return QStringLiteral("Ogg %1 kbps").arg(bitrate);
+            }
+            if (!rate.isEmpty()) {
+                return QStringLiteral("Ogg / %1 kHz").arg(rate);
+            }
+        }
+        return QStringLiteral("Ogg");
     }
 
     if (lower.endsWith(QStringLiteral(".mp3")) || lower.endsWith(QStringLiteral(".m4a"))
@@ -306,12 +415,7 @@ void TrackMediaService::loadAlbumArt(const QString &path, const QString &album) 
         }
     }
 
-    const QString lower = path.toLower();
-    if (lower.endsWith(QStringLiteral(".flac"))) {
-        m_albumArtUrl = extractFlacArt(path, key);
-    } else if (lower.endsWith(QStringLiteral(".opus"))) {
-        m_albumArtUrl = extractOpusArt(path, key);
-    }
+    m_albumArtUrl = extractEmbeddedArt(path, key);
 
     if (m_albumArtUrl.isEmpty()) {
         const QString folderArt = findFolderArt(path);
@@ -344,13 +448,7 @@ QString TrackMediaService::albumArtForTrack(const QString &path) {
         }
     }
 
-    QString artUrl;
-    const QString lower = absolutePath.toLower();
-    if (lower.endsWith(QStringLiteral(".flac"))) {
-        artUrl = extractFlacArt(absolutePath, key);
-    } else if (lower.endsWith(QStringLiteral(".opus"))) {
-        artUrl = extractOpusArt(absolutePath, key);
-    }
+    QString artUrl = extractEmbeddedArt(absolutePath, key);
     if (!artUrl.isEmpty()) {
         return artUrl;
     }

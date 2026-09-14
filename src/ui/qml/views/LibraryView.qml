@@ -273,37 +273,48 @@ Pane {
                     anchors.fill: parent
                     spacing: Theme.spaceSm
 
-                    Label {
-                        text: "Artists"
-                        font.bold: true
-                        color: Theme.foreground
+                    ColumnLayout {
+                        Layout.fillWidth: true
                         Layout.leftMargin: Theme.spaceMd
+                        Layout.rightMargin: Theme.spaceMd
                         Layout.topMargin: Theme.spaceMd
-                    }
+                        spacing: 4
 
-                    Label {
-                        text: searchCountText()
-                        font.pixelSize: Theme.fontCaption
-                        opacity: 0.6
-                        color: Theme.accent
-                        Layout.leftMargin: Theme.spaceMd
-                        Layout.rightMargin: Theme.spaceMd
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
-                                 && App.librarySearchScope === "artists"
-                    }
+                        SectionLabel {
+                            title: "Artists"
+                            Layout.fillWidth: true
+                        }
 
-                    Label {
-                        text: "Press / to search · Tab switches scope"
-                        font.pixelSize: Theme.fontCaption
-                        opacity: 0.45
-                        color: Theme.foreground
-                        Layout.leftMargin: Theme.spaceMd
-                        Layout.rightMargin: Theme.spaceMd
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        visible: !App.librarySearchOpen
+                        Label {
+                            text: artistList.count > 0
+                                  ? artistList.count + (artistList.count === 1 ? " artist" : " artists")
+                                  : " "
+                            font.pixelSize: Theme.fontCaption
+                            opacity: 0.5
+                            color: Theme.foreground
+                            Layout.fillWidth: true
+                            visible: !App.librarySearchOpen
+                                     || App.librarySearchQuery.trimmed().length === 0
+                                     || App.librarySearchScope !== "artists"
+                        }
+
+                        Label {
+                            text: searchCountText()
+                            font.pixelSize: Theme.fontCaption
+                            opacity: 0.6
+                            color: Theme.accent
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
+                                     && App.librarySearchScope === "artists"
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 2
+                            height: 1
+                            color: Theme.rgba(Theme.foreground, 0.08)
+                        }
                     }
 
                     ProgressBar {
@@ -334,6 +345,7 @@ Pane {
 
                         delegate: AppListDelegate {
                             width: artistList.width
+                            itemRadius: Theme.radiusSm
                             text: model.name
                             searchHighlight: App.librarySearchOpen
                                              && App.librarySearchScope === "artists"
@@ -398,35 +410,50 @@ Pane {
                     spacing: Theme.spaceSm
                     visible: App.selectedArtist.length > 0
 
-                    Label {
-                        id: selectedArtistLabel
-                        text: App.selectedArtist
-                        font.bold: true
-                        color: Theme.foreground
-                        elide: Text.ElideRight
+                    ColumnLayout {
                         Layout.fillWidth: true
                         Layout.leftMargin: Theme.spaceMd
-                        Layout.topMargin: Theme.spaceMd
                         Layout.rightMargin: Theme.spaceMd
-                        HoverHandler { id: selectedArtistHover }
-                        ElisionPopup {
-                            visible: selectedArtistHover.hovered && selectedArtistLabel.truncated
-                            text: selectedArtistLabel.text
+                        Layout.topMargin: Theme.spaceMd
+                        spacing: 4
+
+                        SectionLabel {
+                            title: "Albums"
+                            Layout.fillWidth: true
                         }
 
-                    }
+                        Label {
+                            id: selectedArtistLabel
+                            text: App.selectedArtist
+                            font.pixelSize: Theme.fontHeading
+                            font.bold: true
+                            color: Theme.foreground
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                            HoverHandler { id: selectedArtistHover }
+                            ElisionPopup {
+                                visible: selectedArtistHover.hovered && selectedArtistLabel.truncated
+                                text: selectedArtistLabel.text
+                            }
+                        }
 
-                    Label {
-                        text: searchCountText()
-                        font.pixelSize: Theme.fontCaption
-                        opacity: 0.6
-                        color: Theme.accent
-                        Layout.leftMargin: Theme.spaceMd
-                        Layout.rightMargin: Theme.spaceMd
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
-                                 && App.librarySearchScope === "albums"
+                        Label {
+                            text: searchCountText()
+                            font.pixelSize: Theme.fontCaption
+                            opacity: 0.6
+                            color: Theme.accent
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
+                                     && App.librarySearchScope === "albums"
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 2
+                            height: 1
+                            color: Theme.rgba(Theme.foreground, 0.08)
+                        }
                     }
 
                     ListView {
@@ -439,6 +466,7 @@ Pane {
 
                         delegate: AppListDelegate {
                             width: albumList.width
+                            itemRadius: Theme.radiusSm
                             text: modelData
                             searchHighlight: App.librarySearchOpen
                                              && App.librarySearchScope === "albums"
@@ -487,38 +515,67 @@ Pane {
                     anchors.fill: parent
                     spacing: Theme.spaceSm
 
-                    RowLayout {
+                    ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: Theme.spaceMd
                         Layout.leftMargin: Theme.spaceMd
                         Layout.rightMargin: Theme.spaceMd
-                        spacing: Theme.spaceSm
-                        visible: App.selectedAlbum.length > 0
-                                  || (App.librarySearchOpen && App.librarySearchScope === "tracks")
+                        spacing: 4
 
-                        Image {
-                            Layout.preferredWidth: 44
-                            Layout.preferredHeight: 44
-                            fillMode: Image.PreserveAspectCrop
-                            source: App.selectedAlbumArtUrl
-                            visible: source.length > 0
-                            cache: true
+                        SectionLabel {
+                            title: "Tracks"
+                            Layout.fillWidth: true
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceSm
+                            visible: App.selectedAlbum.length > 0
+                                      || (App.librarySearchOpen && App.librarySearchScope === "tracks")
+
+                            Image {
+                                Layout.preferredWidth: 44
+                                Layout.preferredHeight: 44
+                                fillMode: Image.PreserveAspectCrop
+                                source: App.selectedAlbumArtUrl
+                                visible: source.length > 0
+                                cache: true
+                            }
+
+                            Label {
+                                id: selectedAlbumLabel
+                                text: App.selectedAlbum.length > 0 ? App.selectedAlbum : "Tracks"
+                                font.pixelSize: Theme.fontHeading
+                                font.bold: true
+                                color: Theme.foreground
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                                HoverHandler { id: selectedAlbumHover }
+                                ElisionPopup {
+                                    visible: selectedAlbumHover.hovered && selectedAlbumLabel.truncated
+                                    text: selectedAlbumLabel.text
+                                }
+                            }
                         }
 
                         Label {
-                            id: selectedAlbumLabel
-                            text: App.selectedAlbum.length > 0 ? App.selectedAlbum : "Tracks"
-                            font.pixelSize: Theme.fontHeading
-                            font.bold: true
-                            color: Theme.foreground
-                            elide: Text.ElideRight
+                            text: searchCountText()
+                            font.pixelSize: Theme.fontCaption
+                            opacity: 0.6
+                            color: Theme.accent
                             Layout.fillWidth: true
-                            HoverHandler { id: selectedAlbumHover }
-                            ElisionPopup {
-                                visible: selectedAlbumHover.hovered && selectedAlbumLabel.truncated
-                                text: selectedAlbumLabel.text
-                            }
+                            elide: Text.ElideRight
+                            visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
+                                     && App.librarySearchScope === "tracks"
+                        }
 
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 2
+                            height: 1
+                            color: Theme.rgba(Theme.foreground, 0.08)
+                            visible: App.selectedAlbum.length > 0
+                                      || (App.librarySearchOpen && App.librarySearchScope === "tracks")
                         }
                     }
 
@@ -530,19 +587,6 @@ Pane {
                         Layout.topMargin: Theme.spaceXl
                         visible: App.selectedAlbum.length === 0
                                   && !(App.librarySearchOpen && App.librarySearchScope === "tracks")
-                    }
-
-                    Label {
-                        text: searchCountText()
-                        font.pixelSize: Theme.fontCaption
-                        opacity: 0.6
-                        color: Theme.accent
-                        Layout.leftMargin: Theme.spaceMd
-                        Layout.rightMargin: Theme.spaceMd
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        visible: App.librarySearchOpen && App.librarySearchQuery.trimmed().length > 0
-                                 && App.librarySearchScope === "tracks"
                     }
 
                     ListView {
@@ -562,6 +606,7 @@ Pane {
                         delegate: AppListDelegate {
                             id: trackDelegate
                             width: trackList.width
+                            itemRadius: Theme.radiusSm
                             text: model.title
                             accessibleName: (model.trackNumber > 0 ? model.trackNumber + ". " : "")
                                              + model.title

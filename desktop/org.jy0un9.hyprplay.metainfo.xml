@@ -4,7 +4,7 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Hyprplay</name>
-  <summary>Local FLAC, Opus, MP3, and M4A music player</summary>
+  <summary>Local FLAC, Opus, Ogg, MP3, and M4A music player</summary>
   <description>
     <p>
       Local music player for Linux with libmpv playback, library browser,
@@ -28,6 +28,7 @@
     <keyword>audio</keyword>
     <keyword>flac</keyword>
     <keyword>opus</keyword>
+    <keyword>ogg</keyword>
     <keyword>mp3</keyword>
     <keyword>m4a</keyword>
     <keyword>player</keyword>
@@ -35,11 +36,25 @@
     <keyword>hyprland</keyword>
   </keywords>
   <content_rating type="oars-1.1"/>
-  <!-- Screenshots: docs/assets/browse.png playlists.png settings.png -->
+  <screenshots>
+    <screenshot type="default">
+      <caption>Library browser</caption>
+      <image>https://raw.githubusercontent.com/jy0un9/hyprplay/main/docs/assets/browse.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Playlists</caption>
+      <image>https://raw.githubusercontent.com/jy0un9/hyprplay/main/docs/assets/playlists.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings</caption>
+      <image>https://raw.githubusercontent.com/jy0un9/hyprplay/main/docs/assets/settings.png</image>
+    </screenshot>
+  </screenshots>
   <provides>
     <dbus type="session">org.mpris.MediaPlayer2.hyprplay</dbus>
   </provides>
   <releases>
+    <release version="0.1.1" date="2026-09-14"/>
     <release version="0.1.0" date="2026-09-14"/>
   </releases>
 </component>

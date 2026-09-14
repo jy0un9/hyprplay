@@ -11,6 +11,7 @@
 #include <taglib/flacfile.h>
 #include <taglib/xiphcomment.h>
 #include <taglib/opusfile.h>
+#include <taglib/vorbisfile.h>
 #include <taglib/mpegfile.h>
 #include <taglib/id3v2tag.h>
 #include <taglib/mp4file.h>
@@ -145,6 +146,30 @@ bool saveFileTags(const QString &path, const QVariantMap &fields, QString *error
         return true;
     }
 
+    if (lower.endsWith(QStringLiteral(".ogg")) || lower.endsWith(QStringLiteral(".oga"))) {
+        TagLib::Ogg::Vorbis::File file(QFile::encodeName(path).constData());
+        if (!file.isValid()) {
+            if (error) {
+                *error = QStringLiteral("Could not open Ogg Vorbis file");
+            }
+            return false;
+        }
+        TagLib::Ogg::XiphComment *comment = file.tag();
+        if (!applyFields(file.tag(), comment, fields)) {
+            if (error) {
+                *error = QStringLiteral("Could not read Ogg Vorbis tags");
+            }
+            return false;
+        }
+        if (!file.save()) {
+            if (error) {
+                *error = QStringLiteral("Failed to save Ogg Vorbis tags");
+            }
+            return false;
+        }
+        return true;
+    }
+
     if (lower.endsWith(QStringLiteral(".mp3"))) {
         TagLib::MPEG::File file(QFile::encodeName(path).constData());
         if (!file.isValid()) {
@@ -245,6 +270,11 @@ QVariantMap readExtendedTags(const QString &path) {
         }
     } else if (lower.endsWith(QStringLiteral(".opus"))) {
         TagLib::Ogg::Opus::File file(QFile::encodeName(path).constData());
+        if (file.isValid() && file.tag()) {
+            setAlbumArtistField(&row, file.tag());
+        }
+    } else if (lower.endsWith(QStringLiteral(".ogg")) || lower.endsWith(QStringLiteral(".oga"))) {
+        TagLib::Ogg::Vorbis::File file(QFile::encodeName(path).constData());
         if (file.isValid() && file.tag()) {
             setAlbumArtistField(&row, file.tag());
         }

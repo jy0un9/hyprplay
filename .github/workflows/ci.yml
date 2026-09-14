@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Qt
+      - name: Install Qt and test deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y qt6-base-dev qt6-tools-dev
+          sudo apt-get install -y qt6-base-dev qt6-tools-dev libtag1-dev ffmpeg
       - name: Build and run unit tests
         run: |
           cd tests

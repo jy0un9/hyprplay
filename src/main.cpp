@@ -1,5 +1,6 @@
 #include "core/AppController.h"
 #include "core/OmarchyThemeService.h"
+#include "core/PlaybackService.h"
 #include "core/ThemeIconProvider.h"
 #include "mpris/MprisPlayer.h"
 
@@ -8,6 +9,7 @@
 #include <QDBusConnectionInterface>
 #include <QDBusMessage>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
@@ -15,6 +17,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QUrl>
 #include <QVersionNumber>
 
 #include <clocale>
@@ -23,9 +26,81 @@
 
 namespace {
 
-constexpr char kAppVersion[] = "0.1.0";
+constexpr char kAppVersion[] = "0.1.1";
 constexpr char kMprisService[] = "org.mpris.MediaPlayer2.hyprplay";
 constexpr char kMprisPath[] = "/org/mpris/MediaPlayer2";
+
+QStringList collectPlayPaths(int argc, char **argv) {
+    QStringList paths;
+    for (int i = 1; i < argc; ++i) {
+        const QString arg = QString::fromLocal8Bit(argv[i]);
+        if (arg.startsWith(QLatin1Char('-'))) {
+            continue;
+        }
+        QString path;
+        if (arg.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive)) {
+            path = QUrl(arg).toLocalFile();
+        } else {
+            path = QFileInfo(arg).absoluteFilePath();
+        }
+        const QFileInfo info(path);
+        if (info.exists() && info.isFile()) {
+            paths << info.absoluteFilePath();
+        } else {
+            std::fprintf(stderr, "hyprplay: skipping missing file: %s\n", qPrintable(arg));
+        }
+    }
+    return paths;
+}
+
+bool handleCliArgs(int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+        const QString arg = QString::fromLocal8Bit(argv[i]);
+        if (arg == QStringLiteral("--help") || arg == QStringLiteral("-h")) {
+            std::fprintf(stdout,
+                         "hyprplay %s — local music player\n"
+                         "\n"
+                         "Usage: hyprplay [options] [file…]\n"
+                         "  -h, --help     show this help and exit\n"
+                         "  -V, --version  show version and exit\n"
+                         "\n"
+                         "Audio files open in the running instance when one exists.\n",
+                         kAppVersion);
+            return true;
+        }
+        if (arg == QStringLiteral("--version") || arg == QStringLiteral("-V")) {
+            std::fprintf(stdout, "hyprplay %s\n", kAppVersion);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool handoffToExistingInstance(const QStringList &playPaths) {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        return false;
+    }
+    QDBusConnectionInterface *iface = bus.interface();
+    if (!iface || !iface->isServiceRegistered(QString::fromLatin1(kMprisService))) {
+        return false;
+    }
+
+    for (const QString &path : playPaths) {
+        QDBusMessage openUri = QDBusMessage::createMethodCall(
+            QString::fromLatin1(kMprisService), QString::fromLatin1(kMprisPath),
+            QStringLiteral("org.mpris.MediaPlayer2"), QStringLiteral("OpenUri"));
+        openUri << QUrl::fromLocalFile(path).toString();
+        bus.call(openUri, QDBus::Block, 2000);
+    }
+
+    QDBusMessage raise = QDBusMessage::createMethodCall(QString::fromLatin1(kMprisService),
+                                                        QString::fromLatin1(kMprisPath),
+                                                        QStringLiteral("org.mpris.MediaPlayer2"),
+                                                        QStringLiteral("Raise"));
+    bus.call(raise, QDBus::Block, 2000);
+    return true;
+}
 
 QString runtimeDir() {
     const QByteArray env = qgetenv("XDG_RUNTIME_DIR");
@@ -95,50 +170,13 @@ bool prepareDisplayPlatform() {
 
 } // namespace
 
-bool handleCliArgs(int argc, char *argv[]) {
-    for (int i = 1; i < argc; ++i) {
-        const QString arg = QString::fromLocal8Bit(argv[i]);
-        if (arg == QStringLiteral("--help") || arg == QStringLiteral("-h")) {
-            std::fprintf(stdout,
-                         "hyprplay %s — local FLAC/Opus music player\n"
-                         "\n"
-                         "Usage: hyprplay [options]\n"
-                         "  -h, --help     show this help and exit\n"
-                         "  -V, --version  show version and exit\n",
-                         kAppVersion);
-            return true;
-        }
-        if (arg == QStringLiteral("--version") || arg == QStringLiteral("-V")) {
-            std::fprintf(stdout, "hyprplay %s\n", kAppVersion);
-            return true;
-        }
-    }
-    return false;
-}
-
-bool raiseExistingInstance() {
-    QDBusConnection bus = QDBusConnection::sessionBus();
-    if (!bus.isConnected()) {
-        return false;
-    }
-    QDBusConnectionInterface *iface = bus.interface();
-    if (!iface || !iface->isServiceRegistered(QString::fromLatin1(kMprisService))) {
-        return false;
-    }
-    QDBusMessage raise = QDBusMessage::createMethodCall(QString::fromLatin1(kMprisService),
-                                                        QString::fromLatin1(kMprisPath),
-                                                        QStringLiteral("org.mpris.MediaPlayer2"),
-                                                        QStringLiteral("Raise"));
-    bus.call(raise, QDBus::Block, 2000);
-    return true;
-}
-
 int main(int argc, char *argv[]) {
     setlocale(LC_NUMERIC, "C");
 
     if (handleCliArgs(argc, argv)) {
         return 0;
     }
+    const QStringList playPaths = collectPlayPaths(argc, argv);
 
     if (!prepareDisplayPlatform()) {
         return 1;
@@ -154,8 +192,8 @@ int main(int argc, char *argv[]) {
     QGuiApplication::setApplicationVersion(QString::fromLatin1(kAppVersion));
     app.setWindowIcon(QIcon(QStringLiteral(":/hyprplay.svg")));
 
-    if (raiseExistingInstance()) {
-        std::fprintf(stderr, "hyprplay: already running, raised existing window\n");
+    if (handoffToExistingInstance(playPaths)) {
+        std::fprintf(stderr, "hyprplay: already running, handed off to existing window\n");
         return 0;
     }
 
@@ -206,6 +244,11 @@ int main(int argc, char *argv[]) {
             quickWindow->raise();
             quickWindow->requestActivate();
         });
+    }
+
+    if (!playPaths.isEmpty() && controller.playback()) {
+        const QString path = playPaths.first();
+        controller.playback()->playPath(path, QFileInfo(path).completeBaseName());
     }
 
     QObject::connect(&app, &QGuiApplication::aboutToQuit, &controller, &AppController::saveOnExit);

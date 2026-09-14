@@ -456,7 +456,7 @@ Pane {
                                 Label {
                                     text: importModeField.currentValue === "convert_opus"
                                           ? "FLAC tracks are converted to Opus; other formats are copied. Requires opusenc or ffmpeg."
-                                          : "Tracks are copied into the library preserving format (FLAC, Opus, MP3, M4A)."
+                                          : "Tracks are copied into the library preserving format (FLAC, Opus, Ogg, MP3, M4A)."
                                     color: Theme.muted
                                     font.pixelSize: Theme.fontCaption
                                     wrapMode: Text.WordWrap
@@ -683,30 +683,12 @@ Pane {
                                     checked: App.config.lyricsPlainEnabled
                                     onToggled: settingsView.dirty = settingsView.isDirty()
                                 }
-                                Label { text: "Genius access token"; color: Theme.foreground; font.bold: true }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    TextField {
-                                        id: geniusTokenField
-                                        Layout.fillWidth: true
-                                        echoMode: TextInput.Password
-                                        placeholderText: App.lyrics.geniusTokenSet
-                                                         ? "Token configured — enter a new one to replace"
-                                                         : "Token from genius.com/api-clients"
-                                    }
-                                    PrimaryButton {
-                                        text: "Save token"
-                                        enabled: geniusTokenField.text.trim().length > 0
-                                        onClicked: {
-                                            App.lyrics.setGeniusToken(geniusTokenField.text.trim())
-                                            geniusTokenField.text = ""
-                                        }
-                                    }
-                                }
                                 Label {
-                                    text: App.lyrics.geniusTokenSet ? "Genius token set" : "Genius not configured"
-                                    color: App.lyrics.geniusTokenSet ? Theme.success : Theme.muted
+                                    text: "Genius page scraping is disabled. Synced lyrics use LRCLIB; NetEase and plain-text are optional."
+                                    color: Theme.muted
                                     font.pixelSize: Theme.fontSmall
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
                                 }
                             }
                         }
@@ -1014,7 +996,7 @@ Pane {
                                     onClicked: settingsView.selectSection(5)
                                 }
                                 Label {
-                                    text: "Genius token is optional — configure it under Lyrics if you want that provider in the final lyrics pass."
+                                    text: "Lyrics pass uses LRCLIB (and optional NetEase / plain-text). Genius page scraping is disabled."
                                     color: Theme.muted
                                     font.pixelSize: Theme.fontCaption
                                     wrapMode: Text.WordWrap

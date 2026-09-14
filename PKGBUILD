@@ -1,6 +1,6 @@
 # Maintainer: jy0un9 <https://github.com/jy0un9>
 pkgname=hyprplay
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Local music player for Hyprland/Omarchy"
 arch=('x86_64')

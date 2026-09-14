@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+- Public GitHub repo
+- Open audio files from the CLI / file manager (`Exec %U`, single-instance OpenUri handoff)
+- Ogg Vorbis (`.ogg` / `.oga`) library support; embedded art for MP3 / M4A / AAC / Ogg
+- Genius lyrics page scraping removed
+- Library column header polish
+
 ## 0.1.0
 
 - Renamed to Hyprplay

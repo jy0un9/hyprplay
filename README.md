@@ -10,7 +10,7 @@ A native Qt 6 desktop music player for local libraries on Linux — built for
 Omarchy/Hyprland with Wayland-first display detection, MPRIS2 integration,
 synced LRC lyrics, and live Omarchy theme sync.
 
-**Alpha v0.1.0** — usable daily driver; APIs and config keys may still evolve.
+**Alpha v0.1.1** — usable daily driver; APIs and config keys may still evolve.
 
 ## Screenshots
 
@@ -60,8 +60,6 @@ make -j$(nproc)
 ```
 
 Run from a terminal inside your Wayland session (Hyprland/Omarchy). The `./hyprplay` launcher discovers the Wayland socket under `$XDG_RUNTIME_DIR` when needed.
-
-> The GitHub repo is **private** for now — clone only works if you have access.
 
 ### Install prefix
 
