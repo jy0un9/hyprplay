@@ -1,6 +1,6 @@
 # Maintainer: jy0un9 <https://github.com/jy0un9>
 pkgname=hyprplay
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="Local music player for Hyprland/Omarchy"
 arch=('x86_64')
@@ -20,7 +20,7 @@ optdepends=(
   'opus-tools: FLAC→Opus convert import mode (opusenc)'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('02196ee11c281226788bec1ef852a3fc7198a8745f28fbdc344a46eed4fc2de7')
+sha256sums=('SKIP')
 
 build() {
   cd "$pkgname-$pkgver"

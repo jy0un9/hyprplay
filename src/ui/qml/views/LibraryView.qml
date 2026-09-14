@@ -286,13 +286,19 @@ Pane {
                         }
 
                         Label {
-                            text: artistList.count > 0
-                                  ? artistList.count + (artistList.count === 1 ? " artist" : " artists")
-                                  : " "
+                            text: {
+                                if (App.selectedArtist.length > 0)
+                                    return App.selectedArtist
+                                if (artistList.count > 0)
+                                    return artistList.count
+                                           + (artistList.count === 1 ? " artist" : " artists")
+                                return " "
+                            }
                             font.pixelSize: Theme.fontCaption
                             opacity: 0.5
                             color: Theme.foreground
                             Layout.fillWidth: true
+                            elide: Text.ElideRight
                             visible: !App.librarySearchOpen
                                      || App.librarySearchQuery.trimmed().length === 0
                                      || App.librarySearchScope !== "artists"

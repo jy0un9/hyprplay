@@ -35,7 +35,9 @@ Item {
         width: Math.min(parent.width - 24, 360)
         iconName: "audio-x-generic-symbolic"
         title: "No lyrics yet"
-        subtitle: App.lyrics.status.length > 0 ? App.lyrics.status : "Fetch synced lyrics for this track."
+        subtitle: App.lyrics.busy
+                  ? App.lyrics.status
+                  : "Fetch synced lyrics for this track."
         actionText: App.lyrics.busy ? "" : "Fetch lyrics"
         loading: App.lyrics.busy
         visible: !media || media.lyricLines.length === 0

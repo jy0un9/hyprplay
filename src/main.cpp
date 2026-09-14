@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr char kAppVersion[] = "0.1.1";
+constexpr char kAppVersion[] = "0.1.2";
 constexpr char kMprisService[] = "org.mpris.MediaPlayer2.hyprplay";
 constexpr char kMprisPath[] = "/org/mpris/MediaPlayer2";
 

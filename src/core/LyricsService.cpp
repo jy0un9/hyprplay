@@ -29,8 +29,8 @@ constexpr char kLrclibBase[] = "https://lrclib.net/api";
 constexpr char kNeteaseSearch[] = "https://music.163.com/api/search/get";
 constexpr char kNeteaseLyric[] = "https://music.163.com/api/song/lyric";
 constexpr char kOvBase[] = "https://api.lyrics.ovh/v1";
-constexpr char kUserAgent[] = "hyprplay/0.1.1 (+https://github.com/jy0un9/hyprplay)";
-constexpr char kClientIdent[] = "hyprplay/0.1.1 (+https://github.com/jy0un9/hyprplay)";
+constexpr char kUserAgent[] = "hyprplay/0.1.2 (+https://github.com/jy0un9/hyprplay)";
+constexpr char kClientIdent[] = "hyprplay/0.1.2 (+https://github.com/jy0un9/hyprplay)";
 // Accept a candidate only when durations agree within this window.
 constexpr double kDurationToleranceSecs = 10.0;
 constexpr double kNeteaseToleranceSecs = 8.0;
@@ -88,7 +88,16 @@ bool LyricsService::syncedSidecarExists(const QString &trackPath) {
     if (trackPath.isEmpty()) {
         return false;
     }
-    return QFile::exists(sidecarPath(trackPath));
+    const QString path = sidecarPath(trackPath);
+    if (!QFile::exists(path)) {
+        return false;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+    const QString text = QString::fromUtf8(file.readAll());
+    return syncedUsable(text);
 }
 
 bool LyricsService::plainSidecarExists(const QString &trackPath) {

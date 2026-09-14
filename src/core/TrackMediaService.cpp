@@ -365,6 +365,11 @@ void TrackMediaService::loadForTrack(const QString &path, const QString &artist,
     }
 
     if (absPath == m_currentPath && (m_waveformReady || m_loading)) {
+        // Same track already loaded (waveform in flight or ready). Still refresh
+        // lyrics — a fetch may have just written a sidecar next to the file.
+        loadLyrics(absPath, artist, album);
+        emit mediaChanged();
+        emit currentLyricChanged();
         return;
     }
 
@@ -472,14 +477,19 @@ QString TrackMediaService::findFolderArt(const QString &trackPath) {
 
 void TrackMediaService::loadLyrics(const QString &path, const QString &artist,
                                    const QString &album) {
+    m_timedLines.clear();
+    m_lyricLines.clear();
+    m_lyricTimes.clear();
+    m_lyricsText.clear();
+    m_currentLyricIndex = -1;
+    m_lastLyricSyncPos = -1.0;
+
     const QString lyricsFile = findLyricsFile(path, artist, album);
     if (lyricsFile.isEmpty()) {
         return;
     }
 
     m_timedLines = parseLyricsFile(lyricsFile);
-    m_lyricLines.clear();
-    m_lyricTimes.clear();
     QStringList plainLines;
     QVector<TimedLine> timedOnly;
     timedOnly.reserve(m_timedLines.size());
@@ -497,8 +507,6 @@ void TrackMediaService::loadLyrics(const QString &path, const QString &artist,
     if (timedOnly.isEmpty()) {
         // Plain (untimed) lyrics, e.g. a .txt fallback: show every line
         // statically. Timings stay empty so there is no karaoke highlight.
-        m_lyricLines.clear();
-        m_lyricTimes.clear();
         QStringList staticLines;
         for (const TimedLine &line : m_timedLines) {
             if (line.text.isEmpty()) {
@@ -509,8 +517,6 @@ void TrackMediaService::loadLyrics(const QString &path, const QString &artist,
         }
         m_timedLines.clear();
         m_lyricsText = staticLines.join(QLatin1Char('\n'));
-        m_currentLyricIndex = -1;
-        m_lastLyricSyncPos = -1.0;
         return;
     }
     for (const TimedLine &line : timedOnly) {
@@ -520,8 +526,6 @@ void TrackMediaService::loadLyrics(const QString &path, const QString &artist,
     }
     m_timedLines = timedOnly;
     m_lyricsText = plainLines.join(QLatin1Char('\n'));
-    m_currentLyricIndex = -1;
-    m_lastLyricSyncPos = -1.0;
 }
 
 QString TrackMediaService::findLyricsFile(const QString &path, const QString &artist,

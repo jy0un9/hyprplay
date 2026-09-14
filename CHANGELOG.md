@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Fix lyrics UI not reloading after a successful fetch (false “already present”)
+- Artists column header shows the selected artist name
+- Remove Genius lyrics provider; expand test suite
+- Simpler README for install and everyday use
+
 ## 0.1.1
 
 - Public GitHub repo

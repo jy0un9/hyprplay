@@ -18,7 +18,7 @@
 namespace {
 
 constexpr char kMbUserAgent[] =
-    "hyprplay/0.1.1 ( https://github.com/jy0un9/hyprplay )";
+    "hyprplay/0.1.2 ( https://github.com/jy0un9/hyprplay )";
 
 bool isUsableName(const QString &name) {
     const QString trimmed = name.trimmed();
