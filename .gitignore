@@ -10,3 +10,4 @@ moc_predefs.h
 target_wrapper.sh
 events.log
 .commandcode/
+qt-music-tests
