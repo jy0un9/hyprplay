@@ -20,7 +20,7 @@ optdepends=(
   'opus-tools: FLAC→Opus convert import mode (opusenc)'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('c9f46491bf8d7e796ea240821dde3d58ef89f5f83edce8c1da926484d435f944')
 
 build() {
   cd "$pkgname-$pkgver"
