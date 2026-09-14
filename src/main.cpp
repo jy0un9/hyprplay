@@ -24,7 +24,7 @@
 namespace {
 
 constexpr char kAppVersion[] = "0.1.0";
-constexpr char kMprisService[] = "org.mpris.MediaPlayer2.qt-music";
+constexpr char kMprisService[] = "org.mpris.MediaPlayer2.hyprplay";
 constexpr char kMprisPath[] = "/org/mpris/MediaPlayer2";
 
 QString runtimeDir() {
@@ -86,7 +86,7 @@ bool prepareDisplayPlatform() {
     }
 
     std::fprintf(stderr,
-                 "qt-music: no graphical session found.\n"
+                 "hyprplay: no graphical session found.\n"
                  "  Run from a Hyprland/Omarchy terminal, or set WAYLAND_DISPLAY.\n"
                  "  Wayland socket dir checked: %s\n",
                  qPrintable(runtime));
@@ -100,16 +100,16 @@ bool handleCliArgs(int argc, char *argv[]) {
         const QString arg = QString::fromLocal8Bit(argv[i]);
         if (arg == QStringLiteral("--help") || arg == QStringLiteral("-h")) {
             std::fprintf(stdout,
-                         "qt-music %s — local FLAC/Opus music player\n"
+                         "hyprplay %s — local FLAC/Opus music player\n"
                          "\n"
-                         "Usage: qt-music [options]\n"
+                         "Usage: hyprplay [options]\n"
                          "  -h, --help     show this help and exit\n"
                          "  -V, --version  show version and exit\n",
                          kAppVersion);
             return true;
         }
         if (arg == QStringLiteral("--version") || arg == QStringLiteral("-V")) {
-            std::fprintf(stdout, "qt-music %s\n", kAppVersion);
+            std::fprintf(stdout, "hyprplay %s\n", kAppVersion);
             return true;
         }
     }
@@ -147,15 +147,15 @@ int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     setlocale(LC_NUMERIC, "C");
 
-    QGuiApplication::setApplicationName(QStringLiteral("qt-music"));
+    QGuiApplication::setApplicationName(QStringLiteral("hyprplay"));
     QGuiApplication::setOrganizationName(QString());
     QGuiApplication::setOrganizationDomain(QStringLiteral("jy0un9.org"));
-    QGuiApplication::setDesktopFileName(QStringLiteral("qt-music"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("hyprplay"));
     QGuiApplication::setApplicationVersion(QString::fromLatin1(kAppVersion));
-    app.setWindowIcon(QIcon(QStringLiteral(":/qt-music.svg")));
+    app.setWindowIcon(QIcon(QStringLiteral(":/hyprplay.svg")));
 
     if (raiseExistingInstance()) {
-        std::fprintf(stderr, "qt-music: already running, raised existing window\n");
+        std::fprintf(stderr, "hyprplay: already running, raised existing window\n");
         return 0;
     }
 

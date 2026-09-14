@@ -2,24 +2,24 @@
 
 ## 0.1.0 — 2026-09-14
 
-First public alpha aimed at Omarchy / Arch (AUR).
+First alpha as **Hyprplay** (renamed from the earlier qt-music codename).
 
 ### Added
 
 - Library support for MP3, M4A, and AAC alongside FLAC and Opus
 - Import mode `copy` (default) and optional `convert_opus`
 - Library enrichment pipeline (Discogs → title fix → lyrics) with resolve UI
-- AppStream id `org.jy0un9.qt-music`, desktop MimeTypes, PKGBUILD
-- README screenshot and contactable API User-Agents for Discogs / lyrics / MusicBrainz
+- AppStream id `org.jy0un9.hyprplay`, desktop MimeTypes, PKGBUILD
+- Equalizer-bar app icon and Hyprplay branding
 
 ### Changed
 
-- Default library path is always `~/Music` (no personal `opusnew` probe)
-- Config lives at `~/.config/qt-music/`; nested legacy path is migrated once
+- Full rebrand to Hyprplay (binary, desktop entry, MPRIS, config paths)
+- Migrates legacy `~/.config/qt-music/` and library DB on first launch
+- Default library path is always `~/Music`
 - UI font falls back when the configured family is missing
-- Keyring schema renamed to `org.jy0un9.qt-music.Token`
 
 ### Notes
 
-- GitHub homepage: https://github.com/jy0un9/qt-music
+- GitHub: https://github.com/jy0un9/hyprplay (private for now)
 - Status: alpha — expect config/API churn before 0.2

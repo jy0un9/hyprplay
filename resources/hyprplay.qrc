@@ -1,6 +1,6 @@
 <RCC>
     <qresource prefix="/">
-        <file alias="qt-music.svg">../desktop/icons/hicolor/scalable/apps/qt-music.svg</file>
+        <file alias="hyprplay.svg">../desktop/icons/hicolor/scalable/apps/hyprplay.svg</file>
         <file alias="Main.qml">../src/ui/qml/Main.qml</file>
         <file alias="views/LibraryView.qml">../src/ui/qml/views/LibraryView.qml</file>
         <file alias="views/PlaylistsView.qml">../src/ui/qml/views/PlaylistsView.qml</file>

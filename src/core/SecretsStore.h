@@ -4,7 +4,7 @@
 
 // Token storage for Discogs / Genius.
 // Preference: FreeDesktop Secret Service (libsecret) when available; otherwise
-// ~/.config/qt-music/secrets.toml with mode 0600. Existing plaintext tokens are
+// ~/.config/hyprplay/secrets.toml with mode 0600. Existing plaintext tokens are
 // migrated into the keyring on first successful load when a keyring is present.
 class SecretsStore {
 public:

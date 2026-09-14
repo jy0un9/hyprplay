@@ -98,7 +98,7 @@ bool PlaybackService::initMpv() {
     mpv_set_option_string(m_mpv, "keep-open", "yes");
     mpv_set_option_string(m_mpv, "idle", "yes");
     mpv_set_option_string(m_mpv, "pause", "no");
-    mpv_set_option_string(m_mpv, "audio-client-name", "qt-music");
+    mpv_set_option_string(m_mpv, "audio-client-name", "hyprplay");
 
     const int initErr = mpv_initialize(m_mpv);
     if (initErr < 0) {

@@ -1,10 +1,10 @@
 # Maintainer: jy0un9 <https://github.com/jy0un9>
-pkgname=qt-music
+pkgname=hyprplay
 pkgver=0.1.0
 pkgrel=1
 pkgdesc="Native Qt 6 music player for local FLAC/Opus/MP3/M4A libraries (Omarchy/Hyprland)"
 arch=('x86_64')
-url="https://github.com/jy0un9/qt-music"
+url="https://github.com/jy0un9/hyprplay"
 license=('MIT')
 depends=(
   'qt6-base'
@@ -20,11 +20,11 @@ optdepends=(
   'opus-tools: FLAC→Opus convert import mode (opusenc)'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('2dbf158cd9609fd3870b045b846e85dc7b3d40e570a9e3317aba3c0698f58b3e')
+sha256sums=('SKIP')
 
 build() {
   cd "$pkgname-$pkgver"
-  qmake6 PREFIX=/usr qt-music.pro
+  qmake6 PREFIX=/usr hyprplay.pro
   make
 }
 

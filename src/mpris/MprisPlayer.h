@@ -49,8 +49,8 @@ public:
     bool canQuit() const { return true; }
     bool canRaise() const { return true; }
     bool hasTrackList() const { return false; }
-    QString identity() const { return QStringLiteral("Qt Music"); }
-    QString desktopEntry() const { return QStringLiteral("qt-music"); }
+    QString identity() const { return QStringLiteral("Hyprplay"); }
+    QString desktopEntry() const { return QStringLiteral("hyprplay"); }
     QStringList supportedUriSchemes() const { return {QStringLiteral("file")}; }
     QStringList supportedMimeTypes() const {
         return {QStringLiteral("audio/flac"), QStringLiteral("audio/opus"),

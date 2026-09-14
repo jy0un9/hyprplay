@@ -141,7 +141,7 @@ Pane {
                             font.bold: true
                         }
                         Label {
-                            text: "Qt Music"
+                            text: "Hyprplay"
                             color: Theme.muted
                             font.pixelSize: Theme.fontCaption
                         }

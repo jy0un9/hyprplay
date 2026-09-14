@@ -1,4 +1,4 @@
-# Qt Music
+# Hyprplay
 
 ![Platform](https://img.shields.io/badge/platform-Linux-blue)
 ![Qt](https://img.shields.io/badge/Qt-6-41cd52)
@@ -14,9 +14,9 @@ synced LRC lyrics, and live Omarchy theme sync.
 
 ## Screenshot
 
-![Qt Music library view](docs/assets/library-browse.png)
+![Hyprplay library view](docs/assets/library-browse.png)
 
-![Qt Music with a warm Omarchy theme](docs/assets/library-browse-warm.png)
+![Hyprplay with a warm Omarchy theme](docs/assets/library-browse-warm.png)
 
 ## Features
 
@@ -29,7 +29,7 @@ synced LRC lyrics, and live Omarchy theme sync.
 - **Import inbox** — copy albums as-is by default; optional FLAC→Opus convert; optional beets
 - **Library enrichment** — Discogs artist/album pass, title-fix review, lyrics fetch
 - **Secrets** — Discogs/Genius tokens prefer the system keyring (libsecret); fallback `secrets.toml` mode `0600`
-- **MPRIS2** — `org.mpris.MediaPlayer2.qt-music` with LoopStatus/Shuffle, Seek/SetPosition, OpenUri, and desktop media keys
+- **MPRIS2** — `org.mpris.MediaPlayer2.hyprplay` with LoopStatus/Shuffle, Seek/SetPosition, OpenUri, and desktop media keys
 - **Omarchy theme** — reads system accent/background colors and icon theme for a consistent desktop look
 
 ## Install (Arch / Omarchy)
@@ -50,14 +50,14 @@ Optional:
 ## Build from source
 
 ```bash
-git clone https://github.com/jy0un9/qt-music.git
-cd qt-music
-qmake6 qt-music.pro
+git clone https://github.com/jy0un9/hyprplay.git
+cd hyprplay
+qmake6 hyprplay.pro
 make -j$(nproc)
-./qt-music
+./hyprplay
 ```
 
-Run from a terminal inside your Wayland session (Hyprland/Omarchy). The `./qt-music` launcher discovers the Wayland socket under `$XDG_RUNTIME_DIR` when needed.
+Run from a terminal inside your Wayland session (Hyprland/Omarchy). The `./hyprplay` launcher discovers the Wayland socket under `$XDG_RUNTIME_DIR` when needed.
 
 > The GitHub repo is **private** for now — clone only works if you have access.
 
@@ -66,26 +66,26 @@ Run from a terminal inside your Wayland session (Hyprland/Omarchy). The `./qt-mu
 Primary install is `/usr/local` (or `/usr` via the included `PKGBUILD` later):
 
 ```bash
-qmake6 qt-music.pro
+qmake6 hyprplay.pro
 make -j$(nproc)
 sudo make install
 ```
 
-Optional user install: `qmake6 qt-music.pro PREFIX=$HOME/.local && make -j$(nproc) && make install`.
+Optional user install: `qmake6 hyprplay.pro PREFIX=$HOME/.local && make -j$(nproc) && make install`.
 
 | Data | Location |
 | --- | --- |
-| Config / secrets | `~/.config/qt-music/` (legacy nested `~/.config/qt-music/qt-music/` is migrated on first launch) |
-| Library DB | `~/.local/share/qt-music/` |
+| Config / secrets | `~/.config/hyprplay/` (legacy `~/.config/qt-music/` is migrated on first launch) |
+| Library DB | `~/.local/share/hyprplay/` |
 | Playlists / music / covers | Paths in `config.toml` (default `~/Music`) |
 
 ## Tests
 
 ```bash
-cd tests && qmake6 tests.pro && make -j$(nproc) && ./qt-music-tests
+cd tests && qmake6 tests.pro && make -j$(nproc) && ./hyprplay-tests
 ```
 
-CI also runs an offscreen QML smoke: `QT_QPA_PLATFORM=offscreen timeout 5 ./qt-music-bin`.
+CI also runs an offscreen QML smoke: `QT_QPA_PLATFORM=offscreen timeout 5 ./hyprplay-bin`.
 
 ## Usage
 
@@ -112,7 +112,7 @@ Settings sections: Library, Import, Audio, Lyrics, Appearance, Integrations, Enr
 
 ## Configuration
 
-Config file: `~/.config/qt-music/config.toml`
+Config file: `~/.config/hyprplay/config.toml`
 
 ```toml
 [library]

@@ -19,7 +19,7 @@
 
 namespace {
 
-constexpr char kUserAgent[] = "qt-music/0.1.0 (+https://github.com/jy0un9/qt-music)";
+constexpr char kUserAgent[] = "hyprplay/0.1.0 (+https://github.com/jy0un9/hyprplay)";
 constexpr char kApiBase[] = "https://api.discogs.com";
 
 QString readTokenFromLegacySecrets(const QString &path) {

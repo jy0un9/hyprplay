@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.jy0un9.qt-music</id>
+  <id>org.jy0un9.hyprplay</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <name>Qt Music</name>
+  <name>Hyprplay</name>
   <summary>Local FLAC, Opus, MP3, and M4A music player</summary>
   <description>
     <p>
@@ -13,13 +13,13 @@
       and MPRIS2 integration.
     </p>
   </description>
-  <url type="homepage">https://github.com/jy0un9/qt-music</url>
-  <url type="bugtracker">https://github.com/jy0un9/qt-music/issues</url>
+  <url type="homepage">https://github.com/jy0un9/hyprplay</url>
+  <url type="bugtracker">https://github.com/jy0un9/hyprplay/issues</url>
   <developer id="org.jy0un9">
     <name>jy0un9</name>
   </developer>
-  <launchable type="desktop-id">qt-music.desktop</launchable>
-  <icon type="stock">qt-music</icon>
+  <launchable type="desktop-id">hyprplay.desktop</launchable>
+  <icon type="stock">hyprplay</icon>
   <categories>
     <category>AudioVideo</category>
     <category>Audio</category>
@@ -34,12 +34,13 @@
     <keyword>m4a</keyword>
     <keyword>player</keyword>
     <keyword>library</keyword>
+    <keyword>hyprland</keyword>
   </keywords>
   <content_rating type="oars-1.1"/>
   <!-- Screenshot URL restored when the repo is public / AUR-ready.
-       Local asset: docs/assets/library-browse.png -->
+       Local assets: docs/assets/library-browse.png -->
   <provides>
-    <dbus type="session">org.mpris.MediaPlayer2.qt-music</dbus>
+    <dbus type="session">org.mpris.MediaPlayer2.hyprplay</dbus>
   </provides>
   <releases>
     <release version="0.1.0" date="2026-09-14"/>

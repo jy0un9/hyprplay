@@ -11,7 +11,7 @@ ApplicationWindow {
     minimumWidth: 1024
     minimumHeight: 640
     visible: true
-    title: "Qt Music"
+    title: "Hyprplay"
     color: Theme.background
     font.family: App.config.uiFontFamily
     font.pixelSize: App.config.uiFontSize
@@ -416,7 +416,7 @@ ApplicationWindow {
                              spacing: Theme.spaceXs
 
                              Label {
-                                 text: "Qt Music"
+                                 text: "Hyprplay"
                                  font.pixelSize: Theme.fontHeading
                                  font.bold: true
                                  color: Theme.foreground

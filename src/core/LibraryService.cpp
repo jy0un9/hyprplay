@@ -25,7 +25,19 @@ constexpr int kMaxWatchedDirs = 8000;
 QString cacheDbPath() {
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dir);
-    return dir + QStringLiteral("/library.db");
+    const QString path = dir + QStringLiteral("/library.db");
+    if (!QFile::exists(path)) {
+        const QStringList legacyCandidates = {
+            QDir::homePath() + QStringLiteral("/.local/share/qt-music/library.db"),
+            QDir::homePath() + QStringLiteral("/.local/share/qt-music/qt-music/library.db"),
+        };
+        for (const QString &legacy : legacyCandidates) {
+            if (QFile::exists(legacy) && QFile::copy(legacy, path)) {
+                break;
+            }
+        }
+    }
+    return path;
 }
 
 bool isAudioFile(const QString &path) {
@@ -103,7 +115,7 @@ LibraryService::~LibraryService() {
     if (m_db.isOpen()) {
         m_db.close();
     }
-    QSqlDatabase::removeDatabase(QStringLiteral("qt_music_library"));
+    QSqlDatabase::removeDatabase(QStringLiteral("hyprplay_library"));
 }
 
 bool LibraryService::openDatabase() {
@@ -116,7 +128,7 @@ bool LibraryService::openDatabase() {
         QFile::copy(oldPath, dbPath);
     }
 
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("qt_music_library"));
+    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("hyprplay_library"));
     m_db.setDatabaseName(dbPath);
     if (!m_db.open()) {
         m_scanStatus = QStringLiteral("Failed to open library database");
@@ -340,7 +352,7 @@ void LibraryService::startScan(const QStringList &roots, bool fullRebuild) {
     (void)QtConcurrent::run([this, roots, dbPath, fullRebuild]() {
         {
             QSqlDatabase db =
-                QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("qt_music_scan"));
+                QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("hyprplay_scan"));
             db.setDatabaseName(dbPath);
             if (!db.open()) {
                 QMetaObject::invokeMethod(this, [this]() {
@@ -349,7 +361,7 @@ void LibraryService::startScan(const QStringList &roots, bool fullRebuild) {
                     m_scanStatus = QStringLiteral("Scan failed: could not open database");
                     emit scanStatusChanged();
                 }, Qt::QueuedConnection);
-                QSqlDatabase::removeDatabase(QStringLiteral("qt_music_scan"));
+                QSqlDatabase::removeDatabase(QStringLiteral("hyprplay_scan"));
                 return;
             }
 
@@ -363,7 +375,7 @@ void LibraryService::startScan(const QStringList &roots, bool fullRebuild) {
             saveStoredRoots(roots, db);
 
             db.close();
-            QSqlDatabase::removeDatabase(QStringLiteral("qt_music_scan"));
+            QSqlDatabase::removeDatabase(QStringLiteral("hyprplay_scan"));
         }
 
         QMetaObject::invokeMethod(this, [this, fullRebuild]() {

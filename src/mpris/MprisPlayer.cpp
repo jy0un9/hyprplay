@@ -20,7 +20,7 @@ constexpr auto kPropertiesInterface = "org.freedesktop.DBus.Properties";
 
 MprisPlayer::MprisPlayer(PlaybackService *playback, TrackMediaService *media, QObject *parent)
     : QObject(parent), m_playback(playback), m_media(media) {
-    m_serviceName = QStringLiteral("org.mpris.MediaPlayer2.qt-music");
+    m_serviceName = QStringLiteral("org.mpris.MediaPlayer2.hyprplay");
 }
 
 void MprisPlayer::publish() {

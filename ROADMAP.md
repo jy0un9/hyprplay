@@ -1,4 +1,4 @@
-# Qt Music — Roadmap
+# Hyprplay — Roadmap
 
 Prioritized backlog from a full app review (2026-09-07). The player is already a capable local FLAC/Opus app with libmpv, MPRIS2, Omarchy theming, Discogs/beets/lyrics tooling, and a recent UI polish pass — but playlists are half-wired, a few desktop contracts are incomplete, and several config/API stubs are orphaned.
 
@@ -45,7 +45,7 @@ Things that should be fixed before treating the app as “done” for daily use.
 
 ## Should
 
-Work that makes qt-music feel complete and dependable as a daily driver.
+Work that makes hyprplay feel complete and dependable as a daily driver.
 
 ### Playback & library
 
@@ -82,7 +82,7 @@ Work that makes qt-music feel complete and dependable as a daily driver.
 
 9. ~~**Minimal automated tests**~~ **Done**
    `tests/` Qt Test suite: FuzzyMatch, LRC parser, M3U round-trip, lyrics provider parsers.
-   GitHub Actions CI runs unit tests + offscreen QML smoke (`QT_QPA_PLATFORM=offscreen timeout 5 ./qt-music-bin`).
+   GitHub Actions CI runs unit tests + offscreen QML smoke (`QT_QPA_PLATFORM=offscreen timeout 5 ./hyprplay-bin`).
 
 10. ~~**Playlist UX beyond “add one track”**~~ **Done**
     Multi-select in Browse (Ctrl/Shift/Ctrl+A) → add selection to playlist; album context menu add; drag track-number handle to reorder playlist tracks.

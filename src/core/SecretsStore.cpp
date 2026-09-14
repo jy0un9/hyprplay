@@ -12,7 +12,7 @@
 
 namespace {
 
-constexpr auto kSchemaName = "org.jy0un9.qt-music.Token";
+constexpr auto kSchemaName = "org.jy0un9.hyprplay.Token";
 
 const SecretSchema *tokenSchema() {
     static SecretSchema schema = {};
@@ -95,10 +95,15 @@ QString SecretsStore::filePath() {
     QDir().mkpath(appDir);
     const QString path = appDir + QStringLiteral("/secrets.toml");
     if (!QFile::exists(path)) {
-        const QString legacyNested =
-            QDir::homePath() + QStringLiteral("/.config/qt-music/qt-music/secrets.toml");
-        if (QFile::exists(legacyNested)) {
-            QFile::copy(legacyNested, path);
+        const QStringList legacyCandidates = {
+            QDir::homePath() + QStringLiteral("/.config/qt-music/secrets.toml"),
+            QDir::homePath() + QStringLiteral("/.config/qt-music/qt-music/secrets.toml"),
+            QDir::homePath() + QStringLiteral("/.config/hyprplay/hyprplay/secrets.toml"),
+        };
+        for (const QString &legacy : legacyCandidates) {
+            if (QFile::exists(legacy) && QFile::copy(legacy, path)) {
+                break;
+            }
         }
     }
     return path;
@@ -127,11 +132,11 @@ QString SecretsStore::keyringAttribute(Key key) {
 QString SecretsStore::keyringLabel(Key key) {
     switch (key) {
     case Key::DiscogsToken:
-        return QStringLiteral("qt-music Discogs token");
+        return QStringLiteral("hyprplay Discogs token");
     case Key::GeniusToken:
-        return QStringLiteral("qt-music Genius token");
+        return QStringLiteral("hyprplay Genius token");
     }
-    return QStringLiteral("qt-music token");
+    return QStringLiteral("hyprplay token");
 }
 
 void SecretsStore::hardenFilePermissions() {
@@ -285,6 +290,6 @@ QString SecretsStore::storageDescription() {
             "Fallback file secrets.toml uses mode 0600.");
     }
     return QStringLiteral(
-        "Tokens are stored in ~/.config/qt-music/secrets.toml with mode 0600 "
+        "Tokens are stored in ~/.config/hyprplay/secrets.toml with mode 0600 "
         "(system keyring unavailable).");
 }

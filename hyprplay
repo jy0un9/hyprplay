@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
-# Launch qt-music with display auto-detection (Omarchy/Hyprland).
+# Launch hyprplay with display auto-detection (Omarchy/Hyprland).
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ -x "$DIR/../lib/qt-music/qt-music-bin" ]]; then
-  BIN="$DIR/../lib/qt-music/qt-music-bin"
-elif [[ -x "$DIR/qt-music-bin" ]]; then
-  BIN="$DIR/qt-music-bin"
+if [[ -x "$DIR/../lib/hyprplay/hyprplay-bin" ]]; then
+  BIN="$DIR/../lib/hyprplay/hyprplay-bin"
+elif [[ -x "$DIR/hyprplay-bin" ]]; then
+  BIN="$DIR/hyprplay-bin"
 else
-  echo "qt-music: binary not found (expected qt-music-bin next to launcher)." >&2
+  echo "hyprplay: binary not found (expected hyprplay-bin next to launcher)." >&2
   exit 1
 fi
 
 # Warn when both /usr/local and ~/.local installs exist (stale-binary trap).
-PRIMARY_BIN="/usr/local/lib/qt-music/qt-music-bin"
-ALT_BIN="${HOME}/.local/lib/qt-music/qt-music-bin"
+PRIMARY_BIN="/usr/local/lib/hyprplay/hyprplay-bin"
+ALT_BIN="${HOME}/.local/lib/hyprplay/hyprplay-bin"
 if [[ -x "$PRIMARY_BIN" && -x "$ALT_BIN" ]]; then
   case "$BIN" in
     "$PRIMARY_BIN") ;;
     *)
-      echo "qt-music: warning: both installs exist:" >&2
+      echo "hyprplay: warning: both installs exist:" >&2
       echo "  primary: $PRIMARY_BIN" >&2
       echo "  also:    $ALT_BIN" >&2
       echo "  running: $BIN" >&2
       echo "  Prefer /usr/local. Remove the user install with:" >&2
-      echo "    qmake6 qt-music.pro PREFIX=\"\$HOME/.local\" && make uninstall" >&2
+      echo "    qmake6 hyprplay.pro PREFIX=\"\$HOME/.local\" && make uninstall" >&2
       ;;
   esac
 fi
@@ -48,7 +48,7 @@ if [[ -n "${WAYLAND_DISPLAY:-}" && -n "${XDG_RUNTIME_DIR:-}" \
 elif [[ -n "${DISPLAY:-}" ]]; then
   unset QT_QPA_PLATFORM
 else
-  echo "qt-music: no Wayland or X11 display found." >&2
+  echo "hyprplay: no Wayland or X11 display found." >&2
   echo "  Open a terminal inside Hyprland, or run: WAYLAND_DISPLAY=wayland-1 $0" >&2
   exit 1
 fi

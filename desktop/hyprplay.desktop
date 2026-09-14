@@ -1,15 +1,15 @@
 [Desktop Entry]
 Type=Application
-Name=Qt Music
+Name=Hyprplay
 GenericName=Music Player
-Comment=Local FLAC and Opus music player
-Exec=qt-music
-Icon=qt-music
-TryExec=qt-music
+Comment=Local music player for Hyprland / Omarchy
+Exec=hyprplay
+Icon=hyprplay
+TryExec=hyprplay
 Categories=AudioVideo;Audio;Player;
-Keywords=music;audio;flac;opus;mp3;m4a;player;library;
+Keywords=music;audio;flac;opus;mp3;m4a;player;library;hyprland;
 MimeType=audio/flac;audio/ogg;audio/opus;audio/mpeg;audio/mp4;audio/aac;audio/x-m4a;
 StartupNotify=true
 Terminal=false
 SingleMainWindow=true
-StartupWMClass=qt-music
+StartupWMClass=hyprplay

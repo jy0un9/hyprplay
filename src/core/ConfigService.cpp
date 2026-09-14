@@ -52,10 +52,15 @@ QString ConfigService::configFilePath() const {
     QDir().mkpath(dir);
     const QString path = dir + QStringLiteral("/config.toml");
     if (!QFile::exists(path)) {
-        const QString legacyNested =
-            QDir::homePath() + QStringLiteral("/.config/qt-music/qt-music/config.toml");
-        if (QFile::exists(legacyNested)) {
-            QFile::copy(legacyNested, path);
+        const QStringList legacyCandidates = {
+            QDir::homePath() + QStringLiteral("/.config/qt-music/config.toml"),
+            QDir::homePath() + QStringLiteral("/.config/qt-music/qt-music/config.toml"),
+            QDir::homePath() + QStringLiteral("/.config/hyprplay/hyprplay/config.toml"),
+        };
+        for (const QString &legacy : legacyCandidates) {
+            if (QFile::exists(legacy) && QFile::copy(legacy, path)) {
+                break;
+            }
         }
     }
     return path;
@@ -250,7 +255,7 @@ void ConfigService::save() {
     }
 
     QTextStream out(&file);
-    out << "# Qt Music configuration\n\n";
+    out << "# Hyprplay configuration\n\n";
 
     out << "[library]\n";
     out << "paths = [";

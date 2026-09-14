@@ -2,7 +2,7 @@ QT += core testlib
 CONFIG += console c++17 testcase
 CONFIG -= app_bundle
 
-TARGET = qt-music-tests
+TARGET = hyprplay-tests
 TEMPLATE = app
 
 INCLUDEPATH += ../src

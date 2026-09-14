@@ -2,10 +2,10 @@ QT += core gui qml quick quickcontrols2 dbus sql concurrent network
 CONFIG += c++17
 CONFIG -= app_bundle
 
-TARGET = qt-music-bin
+TARGET = hyprplay-bin
 TEMPLATE = app
 
-DEFINES += APP_ID=\\\"qt-music\\\"
+DEFINES += APP_ID=\\\"hyprplay\\\"
 
 SOURCES += \
     src/main.cpp \
@@ -62,7 +62,7 @@ HEADERS += \
     src/models/TrackListModel.h \
     src/mpris/MprisPlayer.h
 
-RESOURCES += resources/qt-music.qrc
+RESOURCES += resources/hyprplay.qrc
 
 INCLUDEPATH += src /usr/include /usr/include/taglib
 
@@ -81,11 +81,11 @@ unix {
     QMAKE_MKDIR = mkdir -p
 
     install.target = install
-    install.commands = $(MKDIR) $(INSTALL_ROOT)$$PREFIX/lib/qt-music && rm -f $(INSTALL_ROOT)$$PREFIX/lib/qt-music/$(QMAKE_TARGET) && cp -f $(QMAKE_TARGET) $(INSTALL_ROOT)$$PREFIX/lib/qt-music/$(QMAKE_TARGET) && chmod 755 $(INSTALL_ROOT)$$PREFIX/lib/qt-music/$(QMAKE_TARGET) && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/bin && rm -f $(INSTALL_ROOT)$$PREFIX/bin/qt-music && cp -f $$PWD/qt-music $(INSTALL_ROOT)$$PREFIX/bin/qt-music && chmod 755 $(INSTALL_ROOT)$$PREFIX/bin/qt-music && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/applications && cp -f $$PWD/desktop/qt-music.desktop $(INSTALL_ROOT)$$PREFIX/share/applications/qt-music.desktop && sh $$PWD/desktop/fix-desktop-exec.sh $(INSTALL_ROOT)$$PREFIX/share/applications/qt-music.desktop $$PREFIX && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/metainfo && cp -f $$PWD/desktop/org.jy0un9.qt-music.metainfo.xml $(INSTALL_ROOT)$$PREFIX/share/metainfo/org.jy0un9.qt-music.metainfo.xml && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/scalable/apps && cp -f $$PWD/desktop/icons/hicolor/scalable/apps/qt-music.svg $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/scalable/apps/qt-music.svg && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/256x256/apps && cp -f $$PWD/desktop/icons/hicolor/256x256/apps/qt-music.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/256x256/apps/qt-music.png && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/128x128/apps && cp -f $$PWD/desktop/icons/hicolor/128x128/apps/qt-music.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/128x128/apps/qt-music.png
+    install.commands = $(MKDIR) $(INSTALL_ROOT)$$PREFIX/lib/hyprplay && rm -f $(INSTALL_ROOT)$$PREFIX/lib/hyprplay/$(QMAKE_TARGET) && cp -f $(QMAKE_TARGET) $(INSTALL_ROOT)$$PREFIX/lib/hyprplay/$(QMAKE_TARGET) && chmod 755 $(INSTALL_ROOT)$$PREFIX/lib/hyprplay/$(QMAKE_TARGET) && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/bin && rm -f $(INSTALL_ROOT)$$PREFIX/bin/hyprplay && cp -f $$PWD/hyprplay $(INSTALL_ROOT)$$PREFIX/bin/hyprplay && chmod 755 $(INSTALL_ROOT)$$PREFIX/bin/hyprplay && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/applications && cp -f $$PWD/desktop/hyprplay.desktop $(INSTALL_ROOT)$$PREFIX/share/applications/hyprplay.desktop && sh $$PWD/desktop/fix-desktop-exec.sh $(INSTALL_ROOT)$$PREFIX/share/applications/hyprplay.desktop $$PREFIX && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/metainfo && cp -f $$PWD/desktop/org.jy0un9.hyprplay.metainfo.xml $(INSTALL_ROOT)$$PREFIX/share/metainfo/org.jy0un9.hyprplay.metainfo.xml && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/scalable/apps && cp -f $$PWD/desktop/icons/hicolor/scalable/apps/hyprplay.svg $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/scalable/apps/hyprplay.svg && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/256x256/apps && cp -f $$PWD/desktop/icons/hicolor/256x256/apps/hyprplay.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/256x256/apps/hyprplay.png && $(MKDIR) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/128x128/apps && cp -f $$PWD/desktop/icons/hicolor/128x128/apps/hyprplay.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/128x128/apps/hyprplay.png
     install.depends = first
     QMAKE_EXTRA_TARGETS += install
 
     uninstall.target = uninstall
-    uninstall.commands = -$(DEL_FILE) $(INSTALL_ROOT)$$PREFIX/lib/qt-music/$(QMAKE_TARGET) $(INSTALL_ROOT)$$PREFIX/bin/qt-music $(INSTALL_ROOT)$$PREFIX/share/applications/qt-music.desktop $(INSTALL_ROOT)$$PREFIX/share/metainfo/org.jy0un9.qt-music.metainfo.xml $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/scalable/apps/qt-music.svg $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/256x256/apps/qt-music.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/128x128/apps/qt-music.png
+    uninstall.commands = -$(DEL_FILE) $(INSTALL_ROOT)$$PREFIX/lib/hyprplay/$(QMAKE_TARGET) $(INSTALL_ROOT)$$PREFIX/bin/hyprplay $(INSTALL_ROOT)$$PREFIX/share/applications/hyprplay.desktop $(INSTALL_ROOT)$$PREFIX/share/metainfo/org.jy0un9.hyprplay.metainfo.xml $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/scalable/apps/hyprplay.svg $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/256x256/apps/hyprplay.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/128x128/apps/hyprplay.png
     QMAKE_EXTRA_TARGETS += uninstall
 }

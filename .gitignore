@@ -3,8 +3,8 @@ moc_*.cpp
 qrc_*.cpp
 .qmake.stash
 Makefile
-qt-music-bin
-qt-music-tests
+hyprplay-bin
+hyprplay-tests
 moc_predefs.h
 *.moc
 target_wrapper.sh
