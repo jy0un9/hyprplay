@@ -7,10 +7,8 @@
   <summary>Local FLAC, Opus, MP3, and M4A music player</summary>
   <description>
     <p>
-      A native Qt 6 desktop music player for local libraries on Linux,
-      with a library browser, libmpv playback, playlists, tag editing,
-      import inbox, synced lyrics, Discogs metadata, Omarchy theme sync,
-      and MPRIS2 integration.
+      Local music player for Linux with libmpv playback, library browser,
+      playlists, tag editing, lyrics, and MPRIS2.
     </p>
   </description>
   <url type="homepage">https://github.com/jy0un9/hyprplay</url>

@@ -2,7 +2,7 @@
 pkgname=hyprplay
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="Native Qt 6 music player for local FLAC/Opus/MP3/M4A libraries (Omarchy/Hyprland)"
+pkgdesc="Local music player for Hyprland/Omarchy"
 arch=('x86_64')
 url="https://github.com/jy0un9/hyprplay"
 license=('MIT')

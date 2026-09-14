@@ -27,9 +27,10 @@ QString cacheDbPath() {
     QDir().mkpath(dir);
     const QString path = dir + QStringLiteral("/library.db");
     if (!QFile::exists(path)) {
+        // Prefer the nested legacy path (full library) over the incomplete flat copy.
         const QStringList legacyCandidates = {
-            QDir::homePath() + QStringLiteral("/.local/share/qt-music/library.db"),
             QDir::homePath() + QStringLiteral("/.local/share/qt-music/qt-music/library.db"),
+            QDir::homePath() + QStringLiteral("/.local/share/qt-music/library.db"),
         };
         for (const QString &legacy : legacyCandidates) {
             if (QFile::exists(legacy) && QFile::copy(legacy, path)) {

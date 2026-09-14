@@ -53,8 +53,8 @@ QString ConfigService::configFilePath() const {
     const QString path = dir + QStringLiteral("/config.toml");
     if (!QFile::exists(path)) {
         const QStringList legacyCandidates = {
-            QDir::homePath() + QStringLiteral("/.config/qt-music/config.toml"),
             QDir::homePath() + QStringLiteral("/.config/qt-music/qt-music/config.toml"),
+            QDir::homePath() + QStringLiteral("/.config/qt-music/config.toml"),
             QDir::homePath() + QStringLiteral("/.config/hyprplay/hyprplay/config.toml"),
         };
         for (const QString &legacy : legacyCandidates) {
