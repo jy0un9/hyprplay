@@ -14,7 +14,7 @@ synced LRC lyrics, and live Omarchy theme sync.
 
 ## Screenshot
 
-![Qt Music library view](docs/assets/screenshot.png)
+![Qt Music library view](docs/assets/library-browse.png)
 
 ## Features
 
@@ -30,16 +30,9 @@ synced LRC lyrics, and live Omarchy theme sync.
 - **MPRIS2** — `org.mpris.MediaPlayer2.qt-music` with LoopStatus/Shuffle, Seek/SetPosition, OpenUri, and desktop media keys
 - **Omarchy theme** — reads system accent/background colors and icon theme for a consistent desktop look
 
-## Install (Omarchy / Arch)
+## Install (Arch / Omarchy)
 
-Once published to the AUR:
-
-```bash
-yay -S qt-music
-# or: omarchy menu → Install → AUR → qt-music
-```
-
-Until then, build from source (below) or use the included `PKGBUILD` with `makepkg -si` after a tagged release exists on GitHub.
+Build from source (AUR package not published yet):
 
 ### Dependencies
 
@@ -64,9 +57,11 @@ make -j$(nproc)
 
 Run from a terminal inside your Wayland session (Hyprland/Omarchy). The `./qt-music` launcher discovers the Wayland socket under `$XDG_RUNTIME_DIR` when needed.
 
+> The GitHub repo is **private** for now — clone only works if you have access.
+
 ### Install prefix
 
-Primary install is `/usr/local` (or `/usr` via PKGBUILD):
+Primary install is `/usr/local` (or `/usr` via the included `PKGBUILD` later):
 
 ```bash
 qmake6 qt-music.pro

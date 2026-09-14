@@ -36,12 +36,8 @@
     <keyword>library</keyword>
   </keywords>
   <content_rating type="oars-1.1"/>
-  <screenshots>
-    <screenshot type="default">
-      <caption>Library browse view with now-playing bar</caption>
-      <image>https://raw.githubusercontent.com/jy0un9/qt-music/main/docs/assets/screenshot.png</image>
-    </screenshot>
-  </screenshots>
+  <!-- Screenshot URL restored when the repo is public / AUR-ready.
+       Local asset: docs/assets/library-browse.png -->
   <provides>
     <dbus type="session">org.mpris.MediaPlayer2.qt-music</dbus>
   </provides>

@@ -88,7 +88,7 @@ Work that makes qt-music feel complete and dependable as a daily driver.
     Multi-select in Browse (Ctrl/Shift/Ctrl+A) → add selection to playlist; album context menu add; drag track-number handle to reorder playlist tracks.
 
 11. ~~**README / AppStream screenshot**~~ **Done**
-    Real library + now-playing shot at `docs/assets/screenshot.png`.
+    Real library + now-playing shot at `docs/assets/library-browse.png`.
 
 ---
 
