@@ -16,6 +16,8 @@ synced LRC lyrics, and live Omarchy theme sync.
 
 ![Qt Music library view](docs/assets/library-browse.png)
 
+![Qt Music with a warm Omarchy theme](docs/assets/library-browse-warm.png)
+
 ## Features
 
 - **Library browser** — artist / album / track columns with fuzzy search (`/` to open, scope follows hover); optional filesystem watch for incremental rescans
