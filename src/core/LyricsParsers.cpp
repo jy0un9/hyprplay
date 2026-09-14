@@ -10,14 +10,6 @@ namespace {
 constexpr double kNeteaseToleranceSecs = 8.0;
 constexpr double kLrclibToleranceSecs = 10.0;
 
-QString normalizeTitle(const QString &title) {
-    QString normalized = title.toLower();
-    // Drop parentheticals such as "(Remastered)" or "[Explicit]".
-    normalized.remove(QRegularExpression(QStringLiteral("\\s*[\\(\\[].*?[\\)\\]]")));
-    normalized.remove(QRegularExpression(QStringLiteral("[^a-z0-9 ]")));
-    return normalized.simplified();
-}
-
 bool durationMatchesSecs(double haveSecs, double wantSecs, double toleranceSecs) {
     if (haveSecs < 0 || wantSecs < 0) {
         return true; // unknown duration: accept on content match alone
@@ -171,76 +163,8 @@ QString ovPlainFromDoc(const QJsonDocument &doc) {
     return doc.object().value(QStringLiteral("lyrics")).toString();
 }
 
-QString geniusPageFromSearch(const QJsonDocument &doc, const QString &artist,
-                                            const QString &title) {
-    const QJsonArray hits =
-        doc.object().value(QStringLiteral("response")).toObject().value(QStringLiteral("hits")).toArray();
-    const QString wantArtist = artist.trimmed();
-    const QString wantTitle = normalizeTitle(title);
-    for (const QJsonValue &value : hits) {
-        const QJsonObject result = value.toObject().value(QStringLiteral("result")).toObject();
-        const QString hitArtist =
-            result.value(QStringLiteral("primary_artist")).toObject().value(QStringLiteral("name")).toString();
-        if (!hitArtist.contains(wantArtist, Qt::CaseInsensitive)
-            && !wantArtist.contains(hitArtist, Qt::CaseInsensitive)) {
-            continue;
-        }
-        const QString hitTitle = normalizeTitle(result.value(QStringLiteral("title")).toString());
-        if (!hitTitle.contains(wantTitle, Qt::CaseInsensitive)
-            && !wantTitle.contains(hitTitle, Qt::CaseInsensitive)) {
-            continue;
-        }
-        const QString url = result.value(QStringLiteral("url")).toString().trimmed();
-        if (!url.isEmpty()) {
-            return url;
-        }
-    }
-    return {};
-}
-
-QString scrapeGeniusHtml(const QString &html) {
-    if (html.isEmpty()) {
-        return {};
-    }
-    // Genius renders lyrics in <div data-lyrics-container="true"> blocks.
-    // Non-greedy match per block; nested divs are not used inside containers.
-    static const QRegularExpression containerRe(
-        QStringLiteral("<div[^>]*data-lyrics-container=\"true\"[^>]*>(.*?)</div>"),
-        QRegularExpression::DotMatchesEverythingOption
-            | QRegularExpression::CaseInsensitiveOption);
-    QStringList blocks;
-    auto it = containerRe.globalMatch(html);
-    while (it.hasNext()) {
-        QString block = it.next().captured(1);
-        block.replace(QRegularExpression(QStringLiteral("<br\\s*/?>"),
-                                         QRegularExpression::CaseInsensitiveOption),
-                      QStringLiteral("\n"));
-        block.replace(QRegularExpression(QStringLiteral("<[^>]+>")), QString());
-        block.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
-        block.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
-        block.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
-        block.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
-        block.replace(QStringLiteral("&#x27;"), QStringLiteral("'"));
-        block.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
-        block.replace(QStringLiteral("&nbsp;"), QStringLiteral(" "));
-        blocks << block.trimmed();
-    }
-    const QString text = blocks.join(QStringLiteral("\n")).trimmed();
-    // Drop annotation-only or truncated captures.
-    int lines = 0;
-    for (const QString &line : text.split(QLatin1Char('\n'))) {
-        if (!line.trimmed().isEmpty()) {
-            ++lines;
-        }
-    }
-    if (text.length() < 100 || lines < 4) {
-        return {};
-    }
-    return text + QLatin1Char('\n');
-}
-
 QString buildSummary(int fetched, int fetchedLrclib, int fetchedNetease,
-                                    int fetchedOv, int fetchedGenius, int skipped,
+                                    int fetchedOv, int skipped,
                                     int knownMiss, int failed) {
     QString summary;
     if (fetched == 0 && failed == 0) {
@@ -267,9 +191,6 @@ QString buildSummary(int fetched, int fetchedLrclib, int fetchedNetease,
     }
     if (fetchedOv > 0) {
         parts << QStringLiteral("lyrics.ovh %1").arg(fetchedOv);
-    }
-    if (fetchedGenius > 0) {
-        parts << QStringLiteral("Genius %1").arg(fetchedGenius);
     }
     if (!parts.isEmpty()) {
         summary += QStringLiteral(" (%1)").arg(parts.join(QStringLiteral(", ")));

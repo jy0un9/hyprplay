@@ -684,7 +684,7 @@ Pane {
                                     onToggled: settingsView.dirty = settingsView.isDirty()
                                 }
                                 Label {
-                                    text: "Genius page scraping is disabled. Synced lyrics use LRCLIB; NetEase and plain-text are optional."
+                                    text: "Synced lyrics use LRCLIB; NetEase and plain-text (lyrics.ovh) are optional."
                                     color: Theme.muted
                                     font.pixelSize: Theme.fontSmall
                                     wrapMode: Text.WordWrap
@@ -933,7 +933,13 @@ Pane {
                                     font.bold: true
                                 }
                                 Label {
-                                    text: "Runs a whole-library pass in order. Exact single matches apply automatically; anything unclear pauses for a choice."
+                                    text: "Optional · advanced"
+                                    color: Theme.accent
+                                    font.pixelSize: Theme.fontCaption
+                                    font.bold: true
+                                }
+                                Label {
+                                    text: "Whole-library metadata pass. Needs a Discogs token (Integrations). Exact single matches apply automatically; anything unclear pauses for a choice. Skip this on a fresh install — Browse, play, and playlists work without it."
                                     color: Theme.muted
                                     font.pixelSize: Theme.fontSmall
                                     wrapMode: Text.WordWrap
@@ -996,8 +1002,16 @@ Pane {
                                     onClicked: settingsView.selectSection(5)
                                 }
                                 Label {
-                                    text: "Lyrics pass uses LRCLIB (and optional NetEase / plain-text). Genius page scraping is disabled."
+                                    text: "Artist, album, and title-fix steps need Discogs. Lyrics use LRCLIB (optional NetEase / plain-text)."
                                     color: Theme.muted
+                                    font.pixelSize: Theme.fontCaption
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    visible: !App.discogs.hasToken
+                                    text: "Start stays disabled until a Discogs token is saved."
+                                    color: Theme.warning
                                     font.pixelSize: Theme.fontCaption
                                     wrapMode: Text.WordWrap
                                     Layout.fillWidth: true

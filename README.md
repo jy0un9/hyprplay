@@ -29,8 +29,8 @@ synced LRC lyrics, and live Omarchy theme sync.
 - **Playlists** — M3U-style playlists; multi-select add; drag track numbers to reorder
 - **Tag editing** — in-app editor for track, album, and artist tags via TagLib
 - **Import inbox** — copy albums as-is by default; optional FLAC→Opus convert; optional beets
-- **Library enrichment** — Discogs artist/album pass, title-fix review, lyrics fetch
-- **Secrets** — Discogs/Genius tokens prefer the system keyring (libsecret); fallback `secrets.toml` mode `0600`
+- **Library enrichment (optional)** — advanced whole-library Discogs pass (token required) plus title-fix review and lyrics fetch; interactive when matches are unclear
+- **Secrets** — Discogs token prefers the system keyring (libsecret); fallback `secrets.toml` mode `0600`
 - **MPRIS2** — `org.mpris.MediaPlayer2.hyprplay` with LoopStatus/Shuffle, Seek/SetPosition, OpenUri, and desktop media keys
 - **Omarchy theme** — reads system accent/background colors and icon theme for a consistent desktop look
 

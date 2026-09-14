@@ -29,13 +29,15 @@ public:
     QVariantList waveformPeaks() const { return m_waveformPeaks; }
     bool waveformReady() const { return m_waveformReady; }
     bool loading() const { return m_loading; }
-    QString qualityLabel() const { return m_qualityLabel; }
+    Q_INVOKABLE QString qualityLabel() const { return m_qualityLabel; }
 
     Q_INVOKABLE void loadForTrack(const QString &path, const QString &artist = {},
                                   const QString &album = {});
     Q_INVOKABLE QString albumArtForTrack(const QString &path);
     Q_INVOKABLE void updateLyricPosition(double positionSecs);
     Q_INVOKABLE int lyricIndexForPosition(double positionSecs) const;
+    // Exposed for tests and diagnostics.
+    static QString qualityLabelForPath(const QString &path);
 
 signals:
     void mediaChanged();
@@ -60,7 +62,6 @@ private:
     static QVector<quint8> loadPeakCache(const QString &cacheFile);
     static bool savePeakCache(const QString &cacheFile, const QVector<quint8> &peaks);
     static QString peakCachePath(const QString &trackPath);
-    static QString qualityLabelForPath(const QString &path);
 
     ConfigService *m_config = nullptr;
     QString m_albumArtUrl;

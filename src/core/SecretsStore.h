@@ -2,13 +2,13 @@
 
 #include <QString>
 
-// Token storage for Discogs / Genius.
+// Token storage for Discogs.
 // Preference: FreeDesktop Secret Service (libsecret) when available; otherwise
 // ~/.config/hyprplay/secrets.toml with mode 0600. Existing plaintext tokens are
 // migrated into the keyring on first successful load when a keyring is present.
 class SecretsStore {
 public:
-    enum class Key { DiscogsToken, GeniusToken };
+    enum class Key { DiscogsToken };
 
     static QString filePath();
     static QString load(Key key);

@@ -95,6 +95,13 @@ bool PlaybackService::initMpv() {
         mpv_set_option_string(m_mpv, "gapless-audio", "weak");
         mpv_set_option_string(m_mpv, "replaygain", "no");
     }
+
+    // Tests / CI: force a silent output so playback works without PipeWire.
+    const QByteArray testAo = qgetenv("HYPRPLAY_TEST_AO");
+    if (!testAo.isEmpty()) {
+        mpv_set_option_string(m_mpv, "ao", testAo.constData());
+        mpv_set_option_string(m_mpv, "audio-exclusive", "no");
+    }
     mpv_set_option_string(m_mpv, "keep-open", "yes");
     mpv_set_option_string(m_mpv, "idle", "yes");
     mpv_set_option_string(m_mpv, "pause", "no");

@@ -14,7 +14,7 @@ class QTimer;
 class QUrl;
 
 // Multi-provider lyrics fetcher. Chain (first hit wins):
-//   LRCLIB (synced) → NetEase (synced) → lyrics.ovh (plain) → Genius (plain, token).
+//   LRCLIB (synced) → NetEase (synced, optional) → lyrics.ovh (plain, optional).
 // Strictly sequential with per-provider throttling, honours HTTP 429/5xx with
 // exponential backoff, and records a global miss only when the whole chain
 // misses, so each track hits the network at most once per retention window.
@@ -24,7 +24,6 @@ class LyricsService : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(int progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(int total READ total NOTIFY progressChanged)
-    Q_PROPERTY(bool geniusTokenSet READ geniusTokenSet NOTIFY geniusTokenChanged)
 
 public:
     explicit LyricsService(ConfigService *config, QObject *parent = nullptr);
@@ -34,14 +33,12 @@ public:
     QString status() const { return m_status; }
     int progress() const { return m_done; }
     int total() const { return m_total; }
-    bool geniusTokenSet() const;
 
     Q_INVOKABLE void fetchForTrack(const QVariantMap &track);
     Q_INVOKABLE void fetchForTracks(const QVariantList &tracks);
     // Explicit single-track retry: bypasses the negative cache.
     Q_INVOKABLE void retryForTrack(const QVariantMap &track);
     Q_INVOKABLE void cancel();
-    Q_INVOKABLE void setGeniusToken(const QString &token);
 
     static bool sidecarExists(const QString &trackPath);
     static bool syncedSidecarExists(const QString &trackPath);
@@ -54,18 +51,13 @@ public:
                                    const QString &title, double wantSecs);
     static QString neteaseSyncedFromDoc(const QJsonDocument &doc);
     static QString ovPlainFromDoc(const QJsonDocument &doc);
-    static QString geniusPageFromSearch(const QJsonDocument &doc, const QString &artist,
-                                        const QString &title);
-    static QString scrapeGeniusHtml(const QString &html);
     static QString buildSummary(int fetched, int fetchedLrclib, int fetchedNetease,
-                                int fetchedOv, int fetchedGenius, int skipped,
-                                int knownMiss, int failed);
+                                int fetchedOv, int skipped, int knownMiss, int failed);
 
 signals:
     void busyChanged();
     void statusChanged();
     void progressChanged();
-    void geniusTokenChanged();
     void trackFetched(const QString &path, bool success);
 
 private slots:
@@ -73,18 +65,17 @@ private slots:
     void onReplyFinished();
 
 private:
-    enum class Provider { Lrclib, Netease, LyricsOv, Genius };
+    enum class Provider { Lrclib, Netease, LyricsOv };
     enum class StepResult { Done, Miss, Transient };
 
     struct Pending {
         QVariantMap track;
         Provider provider = Provider::Lrclib;
-        // Stage 0 = lookup/search, 1 = follow-up (get-by-id / lyric / page).
+        // Stage 0 = lookup/search, 1 = follow-up (get-by-id / lyric).
         // For LRCLIB, stage 1 walks search query variants via searchVariant.
         int stage = 0;
         int searchVariant = 0;
         qint64 externalId = 0;
-        QString pageUrl;
     };
 
     void setBusy(bool busy);
@@ -106,16 +97,12 @@ private:
     void startProviderRequest();
     void advanceProvider();
     bool providerUsable(Provider provider, const QString &trackPath) const;
-    QString loadGeniusToken() const;
 
     StepResult handleLrclibReply(int httpStatus, bool netErr, const QByteArray &body);
     StepResult handleNeteaseReply(int httpStatus, bool netErr, const QByteArray &body);
     StepResult handleLyricsOvReply(int httpStatus, bool netErr, const QByteArray &body);
-    StepResult handleGeniusReply(int httpStatus, bool netErr, const QByteArray &body);
     QNetworkRequest lrclibRequest(const QUrl &url) const;
     QNetworkRequest neteaseRequest(const QUrl &url) const;
-    QNetworkRequest geniusApiRequest(const QUrl &url, const QString &token) const;
-    QNetworkRequest geniusPageRequest(const QUrl &url) const;
     QNetworkRequest plainRequest(const QUrl &url) const;
     QUrl cachedUrl(const QVariantMap &track) const;
     // LRCLIB /search query walk: 0 = artist+title, 1 = stripped (no feat/
@@ -146,7 +133,6 @@ private:
     bool m_providerResumePending = false;
     bool m_busy = false;
     bool m_cancelRequested = false;
-    bool m_geniusDead = false;
     QString m_status;
 
     int m_total = 0;
@@ -155,7 +141,6 @@ private:
     int m_fetchedLrclib = 0;
     int m_fetchedNetease = 0;
     int m_fetchedOv = 0;
-    int m_fetchedGenius = 0;
     int m_skipped = 0;
     int m_knownMiss = 0;
     int m_failed = 0;

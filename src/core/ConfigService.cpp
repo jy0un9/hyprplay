@@ -96,7 +96,6 @@ void ConfigService::load() {
     SecretsStore::hardenFilePermissions();
     // Touch load paths so any existing plaintext tokens migrate into the keyring.
     SecretsStore::load(SecretsStore::Key::DiscogsToken);
-    SecretsStore::load(SecretsStore::Key::GeniusToken);
 
     const QString path = configFilePath();
     if (!QFile::exists(path)) {
@@ -362,6 +361,13 @@ void ConfigService::setLibraryPaths(const QString &paths) {
         return;
     }
     m_libraryPaths = list;
+    const QString root = expandPath(m_libraryPaths.first());
+    if (m_playlistsDir.isEmpty() || m_playlistsDir.endsWith(QLatin1String("/Playlists"))) {
+        m_playlistsDir = root + QStringLiteral("/Playlists");
+    }
+    if (m_lyricsDir.isEmpty() || m_lyricsDir.endsWith(QLatin1String("/Lyrics"))) {
+        m_lyricsDir = root + QStringLiteral("/Lyrics");
+    }
     emit configChanged();
 }
 

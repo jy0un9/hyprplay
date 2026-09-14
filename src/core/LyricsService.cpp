@@ -1,7 +1,6 @@
 #include "LyricsService.h"
 
 #include "ConfigService.h"
-#include "SecretsStore.h"
 #include "LyricsParsers.h"
 
 #include <QDir>
@@ -30,12 +29,8 @@ constexpr char kLrclibBase[] = "https://lrclib.net/api";
 constexpr char kNeteaseSearch[] = "https://music.163.com/api/search/get";
 constexpr char kNeteaseLyric[] = "https://music.163.com/api/song/lyric";
 constexpr char kOvBase[] = "https://api.lyrics.ovh/v1";
-constexpr char kGeniusSearch[] = "https://api.genius.com/search";
 constexpr char kUserAgent[] = "hyprplay/0.1.1 (+https://github.com/jy0un9/hyprplay)";
 constexpr char kClientIdent[] = "hyprplay/0.1.1 (+https://github.com/jy0un9/hyprplay)";
-constexpr char kBrowserAgent[] =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/126.0 Safari/537.36";
 // Accept a candidate only when durations agree within this window.
 constexpr double kDurationToleranceSecs = 10.0;
 constexpr double kNeteaseToleranceSecs = 8.0;
@@ -115,29 +110,6 @@ QString LyricsService::plainSidecarPath(const QString &trackPath) {
         + QStringLiteral(".txt");
 }
 
-bool LyricsService::geniusTokenSet() const {
-    return !loadGeniusToken().isEmpty();
-}
-
-void LyricsService::setGeniusToken(const QString &token) {
-    const QString trimmed = token.trimmed();
-    const QString before = loadGeniusToken();
-    if (before == trimmed) {
-        return;
-    }
-    SecretsStore::store(SecretsStore::Key::GeniusToken, trimmed);
-    m_geniusDead = false;
-    emit geniusTokenChanged();
-}
-
-QString LyricsService::loadGeniusToken() const {
-    const QByteArray env = qgetenv("GENIUS_TOKEN");
-    if (!env.trimmed().isEmpty()) {
-        return QString::fromUtf8(env.trimmed());
-    }
-    return SecretsStore::load(SecretsStore::Key::GeniusToken);
-}
-
 void LyricsService::fetchForTrack(const QVariantMap &track) {
     fetchForTracks({track});
 }
@@ -188,13 +160,11 @@ void LyricsService::enqueue(const QVariantList &tracks) {
         m_fetchedLrclib = 0;
         m_fetchedNetease = 0;
         m_fetchedOv = 0;
-        m_fetchedGenius = 0;
         m_skipped = 0;
         m_knownMiss = 0;
         m_failed = 0;
         m_backoffSecs = 0;
         m_netease403s = 0;
-        m_geniusDead = false;
         m_cancelRequested = false;
         setBusy(true);
         emit progressChanged();
@@ -257,28 +227,25 @@ void LyricsService::processNext() {
     if (m_queue.isEmpty()) {
         m_hasCurrent = false;
         finishJob(buildSummary(m_fetched, m_fetchedLrclib, m_fetchedNetease, m_fetchedOv,
-                               m_fetchedGenius, m_skipped, m_knownMiss, m_failed));
+                               m_skipped, m_knownMiss, m_failed));
         return;
     }
 
     m_current.track = m_queue.takeFirst();
     m_current.provider = Provider::Lrclib;
     // Debug hook (also handy for manual provider tests): start the chain at a
-    // later provider. Values: netease, ov, genius.
+    // later provider. Values: netease, ov.
     if (const QByteArray startAt = qgetenv("QT_MUSIC_LYRICS_START_PROVIDER");
         !startAt.isEmpty()) {
         if (startAt == "netease") {
             m_current.provider = Provider::Netease;
         } else if (startAt == "ov") {
             m_current.provider = Provider::LyricsOv;
-        } else if (startAt == "genius") {
-            m_current.provider = Provider::Genius;
         }
     }
     m_current.stage = 0;
     m_current.searchVariant = 0;
     m_current.externalId = 0;
-    m_current.pageUrl.clear();
     m_hasCurrent = true;
 
     const QString path = m_current.track.value(QStringLiteral("path")).toString();
@@ -322,12 +289,6 @@ bool LyricsService::providerUsable(Provider provider, const QString &trackPath) 
         const bool enabled = m_config ? m_config->lyricsPlainEnabled() : true;
         return enabled && !plainSidecarExists(trackPath);
     }
-    case Provider::Genius: {
-        // Genius has no lyrics API; the old path scraped song pages with a
-        // browser UA. Disabled for public releases — use LRCLIB / optional
-        // plain-text providers instead.
-        return false;
-    }
     }
     return false;
 }
@@ -340,7 +301,7 @@ void LyricsService::startProviderRequest() {
 
     // Advance past providers that cannot run for this track.
     while (!providerUsable(m_current.provider, path)) {
-        if (m_current.provider == Provider::Genius) {
+        if (m_current.provider == Provider::LyricsOv) {
             recordNegative(path);
             finishTrack(false, false);
             return;
@@ -349,15 +310,12 @@ void LyricsService::startProviderRequest() {
         m_current.stage = 0;
         m_current.searchVariant = 0;
         m_current.externalId = 0;
-        m_current.pageUrl.clear();
     }
 
-    // Slow providers (unofficial / authenticated APIs) get a wider gap since
-    // the previous slow request. Same-track follow-ups are exempt: one extra
-    // call right after a search is normal client behaviour.
-    if (m_current.stage == 0
-        && (m_current.provider == Provider::Netease
-            || m_current.provider == Provider::Genius)) {
+    // Slow providers (unofficial APIs) get a wider gap since the previous slow
+    // request. Same-track follow-ups are exempt: one extra call right after a
+    // search is normal client behaviour.
+    if (m_current.stage == 0 && m_current.provider == Provider::Netease) {
         const qint64 elapsed =
             QDateTime::currentMSecsSinceEpoch() - m_lastSlowRequestMs;
         if (elapsed < slowIntervalMs()) {
@@ -399,18 +357,6 @@ void LyricsService::startProviderRequest() {
         startRequest(url, plainRequest(url));
         break;
     }
-    case Provider::Genius: {
-        QUrl url(QString::fromUtf8(kGeniusSearch));
-        QUrlQuery query;
-        query.addQueryItem(QStringLiteral("q"),
-                           track.value(QStringLiteral("artist")).toString().trimmed()
-                               + QLatin1Char(' ')
-                               + track.value(QStringLiteral("title")).toString().trimmed());
-        url.setQuery(query);
-        m_lastSlowRequestMs = QDateTime::currentMSecsSinceEpoch();
-        startRequest(url, geniusApiRequest(url, loadGeniusToken()));
-        break;
-    }
     }
 }
 
@@ -420,7 +366,7 @@ void LyricsService::advanceProvider() {
     }
     // Step to the next provider; startProviderRequest skips unusable ones and
     // records the global miss when the chain is exhausted.
-    if (m_current.provider == Provider::Genius) {
+    if (m_current.provider == Provider::LyricsOv) {
         const QString path = m_current.track.value(QStringLiteral("path")).toString();
         recordNegative(path);
         finishTrack(false, false);
@@ -430,7 +376,6 @@ void LyricsService::advanceProvider() {
     m_current.stage = 0;
     m_current.searchVariant = 0;
     m_current.externalId = 0;
-    m_current.pageUrl.clear();
     startProviderRequest();
 }
 
@@ -498,9 +443,6 @@ void LyricsService::onReplyFinished() {
         break;
     case Provider::LyricsOv:
         result = handleLyricsOvReply(httpStatus, netErr, body);
-        break;
-    case Provider::Genius:
-        result = handleGeniusReply(httpStatus, netErr, body);
         break;
     }
 
@@ -685,44 +627,6 @@ LyricsService::StepResult LyricsService::handleLyricsOvReply(int httpStatus, boo
     return StepResult::Done;
 }
 
-LyricsService::StepResult LyricsService::handleGeniusReply(int httpStatus, bool netErr,
-                                                           const QByteArray &body) {
-    if (netErr) {
-        if (httpStatus == 401) {
-            m_geniusDead = true;
-            setStatus(QStringLiteral("Genius token rejected — skipping Genius…"));
-            return StepResult::Miss;
-        }
-        if (httpStatus == 429 || (httpStatus >= 500 && httpStatus < 600)) {
-            return StepResult::Transient;
-        }
-        return StepResult::Miss;
-    }
-
-    if (m_current.stage == 0) {
-        const QString page = geniusPageFromSearch(
-            QJsonDocument::fromJson(body),
-            m_current.track.value(QStringLiteral("artist")).toString(),
-            m_current.track.value(QStringLiteral("title")).toString());
-        if (page.isEmpty()) {
-            return StepResult::Miss;
-        }
-        m_current.stage = 1;
-        m_current.pageUrl = page;
-        m_lastSlowRequestMs = QDateTime::currentMSecsSinceEpoch();
-        startRequest(QUrl(page), geniusPageRequest(page));
-        return StepResult::Done;
-    }
-
-    const QString plain = scrapeGeniusHtml(QString::fromUtf8(body));
-    if (!plainUsable(plain)) {
-        return StepResult::Miss;
-    }
-    const QString path = m_current.track.value(QStringLiteral("path")).toString();
-    completeSave(plainSidecarPath(path), plain, QStringLiteral("Genius"), &m_fetchedGenius);
-    return StepResult::Done;
-}
-
 bool LyricsService::requeueForRetry(int retryAfterSecs) {
     const int attempts = m_current.track.value(QStringLiteral("__attempts")).toInt();
     if (attempts >= kMaxTransientAttempts || !m_hasCurrent) {
@@ -775,10 +679,9 @@ void LyricsService::finishTrack(bool fetched, bool skipped, const QString &sourc
 }
 
 QString LyricsService::buildSummary(int fetched, int fetchedLrclib, int fetchedNetease,
-                                    int fetchedOv, int fetchedGenius, int skipped,
-                                    int knownMiss, int failed) {
+                                    int fetchedOv, int skipped, int knownMiss, int failed) {
     return LyricsParsers::buildSummary(fetched, fetchedLrclib, fetchedNetease, fetchedOv,
-                                       fetchedGenius, skipped, knownMiss, failed);
+                                       skipped, knownMiss, failed);
 }
 
 void LyricsService::completeSave(const QString &sidecarFile, const QString &text,
@@ -819,22 +722,6 @@ QNetworkRequest LyricsService::neteaseRequest(const QUrl &url) const {
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, QString::fromUtf8(kUserAgent));
     request.setRawHeader("Referer", "https://music.163.com");
-    applyTimeout(request);
-    return request;
-}
-
-QNetworkRequest LyricsService::geniusApiRequest(const QUrl &url, const QString &token) const {
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, QString::fromUtf8(kUserAgent));
-    request.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
-    request.setRawHeader("Accept", "application/json");
-    applyTimeout(request);
-    return request;
-}
-
-QNetworkRequest LyricsService::geniusPageRequest(const QUrl &url) const {
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, QByteArray(kBrowserAgent));
     applyTimeout(request);
     return request;
 }
@@ -983,15 +870,6 @@ QString LyricsService::neteaseSyncedFromDoc(const QJsonDocument &doc) {
 
 QString LyricsService::ovPlainFromDoc(const QJsonDocument &doc) {
     return LyricsParsers::ovPlainFromDoc(doc);
-}
-
-QString LyricsService::geniusPageFromSearch(const QJsonDocument &doc, const QString &artist,
-                                            const QString &title) {
-    return LyricsParsers::geniusPageFromSearch(doc, artist, title);
-}
-
-QString LyricsService::scrapeGeniusHtml(const QString &html) {
-    return LyricsParsers::scrapeGeniusHtml(html);
 }
 
 bool LyricsService::writeSidecar(const QString &filePath, const QString &text) {

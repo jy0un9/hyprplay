@@ -4,11 +4,11 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Hyprplay</name>
-  <summary>Local FLAC, Opus, Ogg, MP3, and M4A music player</summary>
+  <summary>Local FLAC, Opus, Ogg, MP3, M4A, and AAC music player</summary>
   <description>
     <p>
       Local music player for Linux with libmpv playback, library browser,
-      playlists, tag editing, lyrics, and MPRIS2.
+      playlists, tag editing, optional Discogs enrichment, lyrics, and MPRIS2.
     </p>
   </description>
   <url type="homepage">https://github.com/jy0un9/hyprplay</url>

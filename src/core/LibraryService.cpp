@@ -89,6 +89,10 @@ TrackInfo readTags(const QString &path) {
 } // namespace
 
 LibraryService::LibraryService(QObject *parent) : QObject(parent) {
+    m_connectionName =
+        QStringLiteral("hyprplay_library_%1").arg(reinterpret_cast<quintptr>(this), 0, 16);
+    m_scanConnectionName =
+        QStringLiteral("hyprplay_scan_%1").arg(reinterpret_cast<quintptr>(this), 0, 16);
     openDatabase();
     refreshTrackCount();
 
@@ -115,7 +119,8 @@ LibraryService::~LibraryService() {
     if (m_db.isOpen()) {
         m_db.close();
     }
-    QSqlDatabase::removeDatabase(QStringLiteral("hyprplay_library"));
+    m_db = QSqlDatabase();
+    QSqlDatabase::removeDatabase(m_connectionName);
 }
 
 bool LibraryService::openDatabase() {
@@ -128,7 +133,7 @@ bool LibraryService::openDatabase() {
         QFile::copy(oldPath, dbPath);
     }
 
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("hyprplay_library"));
+    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
     m_db.setDatabaseName(dbPath);
     if (!m_db.open()) {
         m_scanStatus = QStringLiteral("Failed to open library database");
@@ -350,9 +355,9 @@ void LibraryService::startScan(const QStringList &roots, bool fullRebuild) {
     const QString dbPath = cacheDbPath();
 
     (void)QtConcurrent::run([this, roots, dbPath, fullRebuild]() {
+        const QString scanName = m_scanConnectionName;
         {
-            QSqlDatabase db =
-                QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("hyprplay_scan"));
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), scanName);
             db.setDatabaseName(dbPath);
             if (!db.open()) {
                 QMetaObject::invokeMethod(this, [this]() {
@@ -361,7 +366,7 @@ void LibraryService::startScan(const QStringList &roots, bool fullRebuild) {
                     m_scanStatus = QStringLiteral("Scan failed: could not open database");
                     emit scanStatusChanged();
                 }, Qt::QueuedConnection);
-                QSqlDatabase::removeDatabase(QStringLiteral("hyprplay_scan"));
+                QSqlDatabase::removeDatabase(scanName);
                 return;
             }
 
@@ -375,7 +380,7 @@ void LibraryService::startScan(const QStringList &roots, bool fullRebuild) {
             saveStoredRoots(roots, db);
 
             db.close();
-            QSqlDatabase::removeDatabase(QStringLiteral("hyprplay_scan"));
+            QSqlDatabase::removeDatabase(scanName);
         }
 
         QMetaObject::invokeMethod(this, [this, fullRebuild]() {

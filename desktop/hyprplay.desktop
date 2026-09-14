@@ -2,7 +2,7 @@
 Type=Application
 Name=Hyprplay
 GenericName=Music Player
-Comment=Local music player for Hyprland / Omarchy
+Comment=Local FLAC/Opus/Ogg/MP3/M4A/AAC player for Hyprland / Omarchy
 Exec=hyprplay %U
 Icon=hyprplay
 TryExec=hyprplay

@@ -64,6 +64,7 @@ bool handleCliArgs(int argc, char **argv) {
                          "  -h, --help     show this help and exit\n"
                          "  -V, --version  show version and exit\n"
                          "\n"
+                         "Formats: FLAC, Opus, Ogg Vorbis, MP3, M4A, AAC.\n"
                          "Audio files open in the running instance when one exists.\n",
                          kAppVersion);
             return true;

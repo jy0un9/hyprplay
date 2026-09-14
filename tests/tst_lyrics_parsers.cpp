@@ -14,7 +14,6 @@ private slots:
     void normalizesQueryText();
     void picksLrclibMatchScored();
     void picksLrclibMatchRejects();
-    void scrapesGeniusHtml();
     void buildsSummary();
 };
 
@@ -108,27 +107,10 @@ void LyricsParsersTest::picksLrclibMatchRejects() {
              0);
 }
 
-void LyricsParsersTest::scrapesGeniusHtml() {
-    const QString html = QStringLiteral(
-        "<div data-lyrics-container=\"true\">"
-        "This is a longer first lyric line for scrape validation<br/>"
-        "Second lyric line continues the verse content here<br/>"
-        "Third lyric line keeps the character count rising<br/>"
-        "Fourth lyric line is required for the line threshold<br/>"
-        "Fifth lyric line adds more readable text content<br/>"
-        "Sixth lyric line still going with more words now<br/>"
-        "Seventh lyric line almost finished with the block<br/>"
-        "Eighth lyric line completes the container contents"
-        "</div>");
-    const QString text = LyricsParsers::scrapeGeniusHtml(html);
-    QVERIFY(!text.isEmpty());
-    QVERIFY(text.contains(QStringLiteral("longer first lyric")));
-}
-
 void LyricsParsersTest::buildsSummary() {
-    QCOMPARE(LyricsParsers::buildSummary(0, 0, 0, 0, 0, 2, 0, 0),
+    QCOMPARE(LyricsParsers::buildSummary(0, 0, 0, 0, 2, 0, 0),
              QStringLiteral("Lyrics already present"));
-    QVERIFY(LyricsParsers::buildSummary(3, 2, 1, 0, 0, 0, 0, 0)
+    QVERIFY(LyricsParsers::buildSummary(3, 2, 1, 0, 0, 0, 0)
                 .startsWith(QStringLiteral("Lyrics: 3 fetched")));
 }
 

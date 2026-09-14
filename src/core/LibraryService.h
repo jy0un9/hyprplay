@@ -75,6 +75,8 @@ private:
     void clearWatchPaths();
 
     QSqlDatabase m_db;
+    QString m_connectionName;
+    QString m_scanConnectionName;
     QStringList m_libraryRoots;
     bool m_scanning = false;
     bool m_scanOnLaunch = true;

@@ -113,8 +113,6 @@ QString SecretsStore::sectionName(Key key) {
     switch (key) {
     case Key::DiscogsToken:
         return QStringLiteral("discogs");
-    case Key::GeniusToken:
-        return QStringLiteral("genius");
     }
     return {};
 }
@@ -123,8 +121,6 @@ QString SecretsStore::keyringAttribute(Key key) {
     switch (key) {
     case Key::DiscogsToken:
         return QStringLiteral("discogs_token");
-    case Key::GeniusToken:
-        return QStringLiteral("genius_token");
     }
     return {};
 }
@@ -133,8 +129,6 @@ QString SecretsStore::keyringLabel(Key key) {
     switch (key) {
     case Key::DiscogsToken:
         return QStringLiteral("hyprplay Discogs token");
-    case Key::GeniusToken:
-        return QStringLiteral("hyprplay Genius token");
     }
     return QStringLiteral("hyprplay token");
 }
