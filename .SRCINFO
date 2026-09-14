@@ -15,6 +15,6 @@ pkgbase = qt-music
 	optdepends = beets: optional autotag during import
 	optdepends = opus-tools: FLAC→Opus convert import mode (opusenc)
 	source = qt-music-0.1.0.tar.gz::https://github.com/jy0un9/qt-music/archive/refs/tags/v0.1.0.tar.gz
-	sha256sums = SKIP
+	sha256sums = 2dbf158cd9609fd3870b045b846e85dc7b3d40e570a9e3317aba3c0698f58b3e
 
 pkgname = qt-music
