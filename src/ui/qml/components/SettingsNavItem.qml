@@ -21,13 +21,13 @@ AbstractButton {
         AppIcon {
             name: control.iconName
             size: 15
-            iconColor: control.selected ? Theme.accent : Theme.foreground
+            color: control.selected ? Theme.accent : Theme.chromeIcon
             opacityFactor: control.selected ? 1 : 0.55
         }
 
         Label {
             text: control.text
-            color: control.selected ? Theme.accent : Theme.foreground
+            color: control.selected ? Theme.accent : Theme.chromeIcon
             opacity: control.selected ? 1 : 0.8
             font.pixelSize: Theme.fontBody
             font.weight: control.selected ? Font.DemiBold : Font.Normal

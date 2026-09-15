@@ -404,7 +404,7 @@ ApplicationWindow {
                          id: topBar
                          Layout.fillWidth: true
                          Layout.preferredHeight: 52
-                         color: Theme.darkBackground
+                         color: Theme.chrome
                          border.color: Theme.rgba(Theme.border, 0.35)
                          border.width: 1
 
@@ -430,7 +430,7 @@ ApplicationWindow {
                                  text: "Hyprplay"
                                  font.pixelSize: Theme.fontHeading
                                  font.bold: true
-                                 color: Theme.foreground
+                                 color: Theme.chromeIcon
                                  Layout.rightMargin: Theme.spaceLg + 2
                              }
 
@@ -461,7 +461,7 @@ ApplicationWindow {
                                  text: App.library.trackCount + " tracks  ·  "
                                        + App.playlists.playlistCount + " playlists"
                                  opacity: 0.65
-                                 color: Theme.foreground
+                                 color: Theme.chromeIcon
                                  font.pixelSize: Theme.fontCaption
                                  elide: Text.ElideRight
                              }

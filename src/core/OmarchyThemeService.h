@@ -15,6 +15,8 @@ class OmarchyThemeService : public QObject {
     Q_PROPERTY(bool dark READ dark NOTIFY colorsChanged)
     Q_PROPERTY(QString background READ background NOTIFY colorsChanged)
     Q_PROPERTY(QString darkBackground READ darkBackground NOTIFY colorsChanged)
+    Q_PROPERTY(QString chrome READ chrome NOTIFY colorsChanged)
+    Q_PROPERTY(QString chromeIcon READ chromeIcon NOTIFY colorsChanged)
     Q_PROPERTY(QString surface READ surface NOTIFY colorsChanged)
     Q_PROPERTY(QString surfaceHover READ surfaceHover NOTIFY colorsChanged)
     Q_PROPERTY(QString selection READ selection NOTIFY colorsChanged)
@@ -49,6 +51,8 @@ public:
     bool dark() const { return m_dark; }
     QString background() const { return m_colors.value(QStringLiteral("background")); }
     QString darkBackground() const { return m_colors.value(QStringLiteral("dark_background")); }
+    QString chrome() const { return m_dark ? darkBackground() : background(); }
+    QString chromeIcon() const { return onFill(chrome()); }
     QString surface() const { return m_colors.value(QStringLiteral("lighter_background")); }
     QString surfaceHover() const { return m_colors.value(QStringLiteral("selection")); }
     QString selection() const { return m_colors.value(QStringLiteral("selection")); }
@@ -77,6 +81,7 @@ public:
     int fontDisplay() const { return 22; }
 
     Q_INVOKABLE QString rgba(const QString &hexColor, qreal alpha) const;
+    Q_INVOKABLE QString onFill(const QString &fillHex) const;
     Q_INVOKABLE QString iconUrl(const QString &name, int size, const QString &color = {}) const;
     Q_INVOKABLE void reload();
 

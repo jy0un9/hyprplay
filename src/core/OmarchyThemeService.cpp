@@ -47,10 +47,16 @@ QString OmarchyThemeService::rgba(const QString &hexColor, qreal alpha) const {
     return color.name(QColor::HexArgb);
 }
 
+QString OmarchyThemeService::onFill(const QString &fillHex) const {
+    const QColor fill = parseColor(fillHex);
+    const qreal luma = 0.299 * fill.redF() + 0.587 * fill.greenF() + 0.114 * fill.blueF();
+    return luma > 0.55 ? QStringLiteral("#1a1a1a") : QStringLiteral("#f4f4f4");
+}
+
 QString OmarchyThemeService::iconUrl(const QString &name, int size, const QString &color) const {
     QColor tint(color.isEmpty() ? m_colors.value(QStringLiteral("foreground")) : color);
     if (!tint.isValid()) {
-        tint = QColor(235, 235, 235);
+        tint = QColor(m_dark ? 235 : 32, m_dark ? 235 : 32, m_dark ? 235 : 32);
     }
     return QStringLiteral("image://themeicon/%1?%2&%3")
         .arg(name)
@@ -146,6 +152,8 @@ void OmarchyThemeService::loadColors() {
         if (parsed.contains(QStringLiteral("mode"))) {
             m_dark = parsed.value(QStringLiteral("mode")).compare(QStringLiteral("light"),
                                                                     Qt::CaseInsensitive) != 0;
+        } else {
+            m_dark = parseColor(m_colors.value(QStringLiteral("background"))).lightnessF() < 0.55;
         }
     }
 

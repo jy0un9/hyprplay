@@ -21,7 +21,7 @@ Rectangle {
     width: Math.min(parent ? parent.width - 48 : 420, Math.max(280, noteLabel.implicitWidth + 56))
     implicitHeight: Math.max(40, noteLabel.implicitHeight + 20)
     radius: Theme.radiusMd
-    color: Theme.darkBackground
+    color: Theme.chrome
     border.color: Theme.rgba(root.barColor, 0.55)
     border.width: 1
     opacity: 0
@@ -48,7 +48,7 @@ Rectangle {
         anchors.bottomMargin: 10
         verticalAlignment: Text.AlignVCenter
         text: root.shownMessage
-        color: Theme.foreground
+        color: Theme.chromeIcon
         font.pixelSize: Theme.fontBody
         wrapMode: Text.WordWrap
         elide: Text.ElideRight

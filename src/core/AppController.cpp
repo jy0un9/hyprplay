@@ -1805,6 +1805,11 @@ void AppController::setDacPassthrough(bool enabled) {
     m_playback->setDacPassthrough(enabled);
     if (enabled) {
         m_config->setVolume(100);
+        if (!m_playback->audioDevice().isEmpty()) {
+            m_config->setAudioDevice(m_playback->audioDevice());
+        }
+    } else {
+        m_config->setAudioDevice(m_playback->audioDevice());
     }
     m_config->save();
 }

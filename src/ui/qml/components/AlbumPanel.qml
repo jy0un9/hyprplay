@@ -16,7 +16,7 @@ Pane {
         return ""
     }
 
-    background: Rectangle { color: Theme.darkBackground }
+    background: Rectangle { color: Theme.chrome }
 
     ColumnLayout {
         anchors.fill: parent

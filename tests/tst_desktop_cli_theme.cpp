@@ -61,7 +61,10 @@ void DesktopCliThemeTest::themeDefaults() {
     QVERIFY(!theme.background().isEmpty());
     QVERIFY(!theme.foreground().isEmpty());
     QVERIFY(!theme.accent().isEmpty());
-    QVERIFY(theme.radiusSm() > 0);
+    QCOMPARE(theme.onFill(QStringLiteral("#f5f5f5")), QStringLiteral("#1a1a1a"));
+    QCOMPARE(theme.onFill(QStringLiteral("#1a1b26")), QStringLiteral("#f4f4f4"));
+    QCOMPARE(theme.chromeIcon(), theme.onFill(theme.chrome()));
+    QVERIFY(QString::compare(theme.chrome(), theme.chromeIcon(), Qt::CaseInsensitive) != 0);
     QVERIFY(theme.spaceMd() > 0);
 }
 

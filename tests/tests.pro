@@ -19,6 +19,7 @@ unix {
 SOURCES += \
     main.cpp \
     tst_fuzzymatch.cpp \
+    tst_audio_device_filter.cpp \
     tst_lrcparser.cpp \
     tst_playlist_m3u.cpp \
     tst_lyrics_parsers.cpp \
@@ -36,6 +37,7 @@ SOURCES += \
     tst_desktop_cli_theme.cpp \
     tst_format_matrix.cpp \
     ../src/core/FuzzyMatch.cpp \
+    ../src/core/AudioDeviceFilter.cpp \
     ../src/core/LrcParser.cpp \
     ../src/core/PlaylistM3u.cpp \
     ../src/core/LyricsParsers.cpp \
@@ -60,6 +62,7 @@ HEADERS += \
     AudioFixture.h \
     ../src/core/AudioFormats.h \
     ../src/core/FuzzyMatch.h \
+    ../src/core/AudioDeviceFilter.h \
     ../src/core/LrcParser.h \
     ../src/core/PlaylistM3u.h \
     ../src/core/LyricsParsers.h \

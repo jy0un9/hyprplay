@@ -96,7 +96,7 @@ Pane {
             Layout.preferredWidth: 208
             Layout.minimumWidth: 176
             Layout.fillHeight: true
-            color: Theme.darkBackground
+            color: Theme.chrome
 
             Rectangle {
                 anchors.right: parent.right
@@ -161,7 +161,7 @@ Pane {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 56
-                color: Theme.darkBackground
+                color: Theme.chrome
 
                 RowLayout {
                     anchors.fill: parent
@@ -345,7 +345,7 @@ Pane {
 
                             SettingsRow {
                                 title: "Device"
-                                visible: audioDevicePicker.count > 1
+                                visible: audioDevicePicker.count > 0
                                 controlWidth: 280
 
                                 ComboBox {
@@ -353,9 +353,12 @@ Pane {
                                     Layout.fillWidth: true
                                     textRole: "description"
                                     model: {
-                                        // Depend on the backend string so the list refreshes after engine restarts.
+                                        // Depend on backend + DAC mode so the list refreshes with the right family.
                                         App.playback.audioBackend
-                                        var items = [{ "name": "", "description": "System default" }]
+                                        App.playback.dacPassthrough
+                                        var items = []
+                                        if (!App.playback.dacPassthrough)
+                                            items.push({ "name": "", "description": "System default" })
                                         var devices = App.playback.audioDeviceList()
                                         for (var i = 0; i < devices.length; ++i) {
                                             items.push(devices[i])
@@ -389,11 +392,15 @@ Pane {
 
                             SettingsRow {
                                 title: "Bit-perfect output"
-                                description: "Locks volume at 100%, disables mute and ReplayGain, forces gapless."
+                                description: "Exclusive ALSA to the DAC — hides it from OS sound settings. Turn off to share the DAC with YouTube and other apps."
                                 value: App.playback.dacPassthrough
-                                       ? "Active — use the DAC's own volume control."
+                                       ? (App.playback.bitPerfectActive
+                                          ? "Active — use the DAC's own volume control."
+                                          : "On — waiting for exclusive ALSA.")
                                        : "Off — PipeWire handles volume and per-app mixing."
-                                valueColor: App.playback.dacPassthrough ? Theme.success : Theme.muted
+                                valueColor: App.playback.dacPassthrough
+                                            ? (App.playback.bitPerfectActive ? Theme.success : Theme.warning)
+                                            : Theme.muted
 
                                 Switch {
                                     id: dacSwitch
@@ -403,13 +410,30 @@ Pane {
                             }
 
                             SettingsNote {
-                                kind: "warning"
-                                text: "Passthrough is requested but the output is PipeWire/Pulse, which is the same mixer path as normal mode. Only an alsa backend is bit-perfect."
+                                kind: App.playback.bitPerfectActive ? "success" : "warning"
+                                text: App.playback.bitPerfectStatus
                                 visible: App.playback.dacPassthrough
-                                         && (App.playback.audioBackend.indexOf("pipewire") === 0
-                                             || App.playback.audioBackend.indexOf("pulse") === 0
-                                             || (App.playback.audioBackend.length === 0
-                                                 && App.playback.playing))
+                                         && App.playback.bitPerfectStatus.length > 0
+                            }
+
+                            SettingsRow {
+                                title: "Retry exclusive"
+                                description: "Re-reserves the DAC from PipeWire and reopens ALSA. The DAC returns to OS settings when bit-perfect is turned off."
+                                visible: App.playback.dacPassthrough
+                                         && !App.playback.bitPerfectActive
+
+                                Button {
+                                    text: "Retry"
+                                    onClicked: {
+                                        if (App.playback.retryExclusiveOutput()) {
+                                            if (App.playback.audioDevice.length > 0)
+                                                App.config.setAudioDevice(App.playback.audioDevice)
+                                            settingsView.flash("Exclusive output retried")
+                                        } else {
+                                            settingsView.flash("Exclusive open failed")
+                                        }
+                                    }
+                                }
                             }
                         }
 

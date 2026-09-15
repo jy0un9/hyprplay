@@ -178,6 +178,8 @@ void ConfigService::load() {
             } else if (key == QLatin1String("dac_passthrough")) {
                 m_playback.dacPassthrough =
                     value == QLatin1String("true") || value == QLatin1String("1");
+            } else if (key == QLatin1String("dac_exclusive")) {
+                // Legacy key from the short-lived shared/exclusive split — ignored.
             } else if (key == QLatin1String("audio_device")) {
                 m_playback.audioDevice = unquote(value);
             }

@@ -31,6 +31,7 @@ SOURCES += \
     src/core/PlaylistM3u.cpp \
     src/core/LyricsParsers.cpp \
     src/core/FuzzyMatch.cpp \
+    src/core/AudioDeviceFilter.cpp \
     src/models/PlaylistListModel.cpp \
     src/models/ArtistModel.cpp \
     src/models/TrackListModel.cpp \
@@ -59,6 +60,7 @@ HEADERS += \
     src/core/PlaylistM3u.h \
     src/core/LyricsParsers.h \
     src/core/FuzzyMatch.h \
+    src/core/AudioDeviceFilter.h \
     src/core/AudioFormats.h \
     src/models/PlaylistListModel.h \
     src/models/ArtistModel.h \

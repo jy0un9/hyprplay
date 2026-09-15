@@ -1,8 +1,13 @@
 #include "PlaybackService.h"
 
+#include "AudioDeviceFilter.h"
+
 #include <QDebug>
+#include <QFile>
 #include <QFileInfo>
 #include <QRandomGenerator>
+#include <QRegularExpression>
+#include <QThread>
 #include <QVector>
 
 #include <algorithm>
@@ -48,7 +53,9 @@ bool PlaybackService::ensureMpv() {
 }
 
 PlaybackService::~PlaybackService() {
+    // Close ALSA before restoring PipeWire, or the restore can fail while hw is busy.
     shutdownMpv();
+    restoreExclusiveLease();
 }
 
 bool PlaybackService::initMpv() {
@@ -67,15 +74,13 @@ bool PlaybackService::initMpv() {
     mpv_set_option_string(m_mpv, "vo", "null");
 
     if (m_dacPassthrough) {
-        // DAC passthrough: minimize DSP so a USB DAC receives the source
-        // rate/format. ALSA first for direct hw access (falls back to
-        // PipeWire when PipeWire holds the device). Samplerate/format "0"/"no"
-        // means follow-the-source on mpv 0.41 (verified via --list-options).
+        // Exclusive ALSA only — no PipeWire/Pulse fallback (that path is not bit-perfect).
+        ensureDacDeviceSelected();
         if (m_volume != 100) {
             m_volume = 100;
             emit volumeChanged();
         }
-        mpv_set_option_string(m_mpv, "ao", "alsa,pipewire,pulse");
+        mpv_set_option_string(m_mpv, "ao", "alsa");
         mpv_set_option_string(m_mpv, "audio-exclusive", "yes");
         mpv_set_option_string(m_mpv, "audio-stream-silence", "no");
         mpv_set_option_string(m_mpv, "audio-wait-open", "2");
@@ -124,11 +129,16 @@ bool PlaybackService::initMpv() {
     mpv_observe_property(m_mpv, 0, "eof-reached", MPV_FORMAT_FLAG);
 
     m_error.clear();
+    // Never feed exclusive ALSA device names into the PipeWire/Pulse backend.
+    if (!m_dacPassthrough && isAlsaHwDevice(m_audioDevice)) {
+        m_audioDevice = pipewireSinkForAlsaHwDevice(m_audioDevice);
+    }
     if (!m_audioDevice.isEmpty()) {
         runMpvCommand(m_mpv, {QStringLiteral("set"), QStringLiteral("audio-device"), m_audioDevice});
     }
     setVolume(m_volume);
     refreshAudioBackend();
+    refreshBitPerfectStatus();
     return true;
 }
 
@@ -188,9 +198,17 @@ void PlaybackService::handleMpvEvent(mpv_event *event) {
         } else if (prop->format == MPV_FORMAT_FLAG) {
             const int flag = *static_cast<int *>(prop->data);
             if (qstrcmp(prop->name, "pause") == 0) {
-                m_paused = flag != 0;
-                m_playing = !m_paused && !m_currentPath.isEmpty();
-                emit playbackChanged();
+                if (m_resumeHoldPlaying && flag != 0) {
+                    // Async pause from engine reopen — keep playing.
+                    mpv_set_property_string(m_mpv, "pause", "no");
+                    m_paused = false;
+                    m_playing = !m_currentPath.isEmpty();
+                    emit playbackChanged();
+                } else {
+                    m_paused = flag != 0;
+                    m_playing = !m_paused && !m_currentPath.isEmpty();
+                    emit playbackChanged();
+                }
             } else if (qstrcmp(prop->name, "eof-reached") == 0 && flag != 0) {
                 m_trackEndedPending = true;
             }
@@ -227,6 +245,10 @@ void PlaybackService::syncFromMpv() {
         }
     }
     if (mpv_get_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused) >= 0) {
+        if (m_resumeHoldPlaying && paused != 0) {
+            mpv_set_property_string(m_mpv, "pause", "no");
+            paused = 0;
+        }
         const bool newPaused = paused != 0;
         const bool newPlaying = !newPaused && !m_currentPath.isEmpty();
         if (newPaused != m_paused || newPlaying != m_playing) {
@@ -256,6 +278,11 @@ void PlaybackService::pollMpv() {
             m_position = position;
             emit positionChanged();
         }
+    }
+
+    if (m_dacPassthrough) {
+        refreshBitPerfectStatus();
+        refreshAudioBackend();
     }
 
     if (m_trackEndedPending) {
@@ -337,6 +364,10 @@ bool PlaybackService::hasNextInQueue() const {
 }
 
 void PlaybackService::loadCurrentQueueTrack() {
+    loadCurrentQueueTrackResuming(-1.0, true);
+}
+
+void PlaybackService::loadCurrentQueueTrackResuming(double resumePos, bool wasPlaying) {
     if (!ensureMpv()) {
         m_error = QStringLiteral("Audio engine unavailable");
         emit playbackChanged();
@@ -364,20 +395,92 @@ void PlaybackService::loadCurrentQueueTrack() {
 
     emit trackChanged();
 
-    m_position = 0.0;
+    const bool seekOnLoad = resumePos > 0.05;
+    m_position = seekOnLoad ? resumePos : 0.0;
     m_duration = 0.0;
     emit positionChanged();
 
-    runMpvCommand(m_mpv, {QStringLiteral("loadfile"), path, QStringLiteral("replace")});
-    mpv_set_property_string(m_mpv, "pause", "no");
+    // start= must be on loadfile — seeking right after replace races the demuxer
+    // and restarts from 0 when toggling bit-perfect.
+    // mpv ≥0.38: loadfile <url> <flags> <index> <options>
+    QStringList loadArgs{QStringLiteral("loadfile"), path, QStringLiteral("replace")};
+    QStringList opts;
+    if (seekOnLoad) {
+        opts.append(QStringLiteral("start=%1").arg(resumePos, 0, 'f', 3));
+    }
+    // Be explicit: start= seeks can leave the core paused until we unpause.
+    opts.append(wasPlaying ? QStringLiteral("pause=no") : QStringLiteral("pause=yes"));
+    loadArgs.append(QStringLiteral("0")); // ignored insertion index for replace
+    loadArgs.append(opts.join(QLatin1Char(',')));
+    if (runMpvCommand(m_mpv, loadArgs) < 0) {
+        // Older mpv without the index argument — retry classic form, then bare load.
+        QStringList legacy{QStringLiteral("loadfile"), path, QStringLiteral("replace"),
+                           opts.join(QLatin1Char(','))};
+        if (runMpvCommand(m_mpv, legacy) < 0) {
+            runMpvCommand(m_mpv, {QStringLiteral("loadfile"), path, QStringLiteral("replace")});
+        }
+    }
     mpv_set_property_string(m_mpv, "vid", "no");
 
-    m_paused = false;
-    m_playing = true;
+    // Wait until demuxer + AO are up so unpause sticks (exclusive ALSA open is slow).
+    for (int i = 0; i < 80; ++i) {
+        processMpvEvents();
+        char *ao = mpv_get_property_string(m_mpv, "current-ao");
+        const bool hasAo = ao && ao[0] && qstrcmp(ao, "null") != 0;
+        mpv_free(ao);
+        double pos = 0.0;
+        const bool hasPos = mpv_get_property(m_mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos) >= 0
+            && std::isfinite(pos);
+        if (hasAo && (hasPos || !seekOnLoad)) {
+            break;
+        }
+        QThread::msleep(25);
+    }
+    if (seekOnLoad) {
+        double pos = 0.0;
+        const bool havePos = mpv_get_property(m_mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos) >= 0
+            && std::isfinite(pos);
+        if (!havePos || std::abs(pos - resumePos) > 1.0) {
+            runMpvCommand(m_mpv, {QStringLiteral("seek"), QString::number(resumePos, 'f', 3),
+                                  QStringLiteral("absolute")});
+            processMpvEvents();
+        }
+        m_position = resumePos;
+        emit positionChanged();
+    }
 
+    // Force play/pause after AO open — syncFromMpv alone can see a stale paused=yes
+    // from the exclusive device handoff.
     processMpvEvents();
-    syncFromMpv();
+    if (wasPlaying) {
+        runMpvCommand(m_mpv, {QStringLiteral("set"), QStringLiteral("pause"), QStringLiteral("no")});
+        processMpvEvents();
+        m_paused = false;
+        m_playing = true;
+    } else {
+        runMpvCommand(m_mpv, {QStringLiteral("set"), QStringLiteral("pause"), QStringLiteral("yes")});
+        processMpvEvents();
+        m_paused = true;
+        m_playing = false;
+    }
+
+    // Sync duration/position only; keep intentional pause state.
+    if (m_mpv) {
+        double duration = m_duration;
+        if (mpv_get_property(m_mpv, "duration", MPV_FORMAT_DOUBLE, &duration) >= 0
+            && std::isfinite(duration)) {
+            m_duration = duration;
+        }
+        if (!seekOnLoad) {
+            double pos = m_position;
+            if (mpv_get_property(m_mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos) >= 0
+                && std::isfinite(pos)) {
+                m_position = pos;
+            }
+        }
+    }
     refreshAudioBackend();
+    emit positionChanged();
     emit playbackChanged();
 }
 
@@ -587,47 +690,336 @@ void PlaybackService::refreshAudioBackend() {
     emit audioBackendChanged();
 }
 
+namespace {
+
+int mpvNodeMapInt(const mpv_node &node, const char *key) {
+    if (node.format != MPV_FORMAT_NODE_MAP || !node.u.list) {
+        return 0;
+    }
+    for (int i = 0; i < node.u.list->num; ++i) {
+        if (!node.u.list->keys[i] || qstrcmp(node.u.list->keys[i], key) != 0) {
+            continue;
+        }
+        const mpv_node &value = node.u.list->values[i];
+        if (value.format == MPV_FORMAT_INT64) {
+            return static_cast<int>(value.u.int64);
+        }
+        if (value.format == MPV_FORMAT_DOUBLE) {
+            return static_cast<int>(value.u.double_);
+        }
+    }
+    return 0;
+}
+
+QString mpvNodeMapString(const mpv_node &node, const char *key) {
+    if (node.format != MPV_FORMAT_NODE_MAP || !node.u.list) {
+        return {};
+    }
+    for (int i = 0; i < node.u.list->num; ++i) {
+        if (!node.u.list->keys[i] || qstrcmp(node.u.list->keys[i], key) != 0) {
+            continue;
+        }
+        const mpv_node &value = node.u.list->values[i];
+        if (value.format == MPV_FORMAT_STRING && value.u.string) {
+            return QString::fromUtf8(value.u.string);
+        }
+    }
+    return {};
+}
+
+QString formatRateHz(int hz) {
+    if (hz <= 0) {
+        return QStringLiteral("—");
+    }
+    if (hz % 1000 == 0) {
+        const double khz = hz / 1000.0;
+        if (std::floor(khz) == khz) {
+            return QString::number(static_cast<int>(khz)) + QStringLiteral(" kHz");
+        }
+        return QString::number(khz, 'f', 1) + QStringLiteral(" kHz");
+    }
+    return QString::number(hz) + QStringLiteral(" Hz");
+}
+
+} // namespace
+
+void PlaybackService::ensureDacDeviceSelected() {
+    if (!m_dacPassthrough) {
+        return;
+    }
+    if (isAlsaHwDevice(m_audioDevice)) {
+        return;
+    }
+    const QString usb = preferredUsbDacDevice();
+    if (!usb.isEmpty()) {
+        m_audioDevice = usb;
+        return;
+    }
+    const QList<AudioDeviceEntry> cards = alsaHwDeviceEntries();
+    if (!cards.isEmpty()) {
+        m_audioDevice = cards.first().name;
+    }
+}
+
+bool PlaybackService::acquireExclusiveForCurrentDevice() {
+    ensureDacDeviceSelected();
+    const QString cardId = alsaCardIdFromDevice(m_audioDevice);
+    if (cardId.isEmpty()) {
+        return false;
+    }
+    return acquireAlsaExclusiveLease(cardId, &m_alsaLease);
+}
+
+void PlaybackService::restoreExclusiveLease() {
+    restoreAlsaExclusiveLease(&m_alsaLease);
+}
+
+void PlaybackService::holdResumePlaying(bool wasPlaying) {
+    m_resumeHoldPlaying = wasPlaying;
+    if (!wasPlaying) {
+        return;
+    }
+    enforceResumePlaying();
+    QTimer::singleShot(150, this, &PlaybackService::enforceResumePlaying);
+    QTimer::singleShot(400, this, &PlaybackService::enforceResumePlaying);
+    QTimer::singleShot(1000, this, [this]() {
+        enforceResumePlaying();
+        m_resumeHoldPlaying = false;
+    });
+}
+
+void PlaybackService::enforceResumePlaying() {
+    if (!m_resumeHoldPlaying || !m_mpv || m_currentPath.isEmpty()) {
+        return;
+    }
+    runMpvCommand(m_mpv, {QStringLiteral("set"), QStringLiteral("pause"), QStringLiteral("no")});
+    m_paused = false;
+    m_playing = true;
+    emit playbackChanged();
+}
+
+void PlaybackService::refreshBitPerfectStatus() {
+    bool active = false;
+    QString status;
+
+    if (!m_dacPassthrough) {
+        status.clear();
+    } else if (!m_mpv) {
+        status = QStringLiteral("Waiting for audio engine…");
+    } else {
+        char *ao = mpv_get_property_string(m_mpv, "current-ao");
+        const QString aoStr = ao ? QString::fromUtf8(ao) : QString();
+        mpv_free(ao);
+
+        const bool alsaHw = aoStr == QLatin1String("alsa") && isAlsaHwDevice(m_audioDevice);
+        if (aoStr.isEmpty() || aoStr == QLatin1String("null")) {
+            status = m_alsaLease.held
+                         ? QStringLiteral("DAC reserved from the OS — press play to open exclusive ALSA.")
+                         : QStringLiteral("Could not reserve the DAC from PipeWire. Try Retry exclusive.");
+        } else if (!alsaHw) {
+            status = QStringLiteral("Not exclusive — backend is %1. Use Retry exclusive.")
+                         .arg(aoStr.isEmpty() ? QStringLiteral("idle") : aoStr);
+        } else {
+            int sourceRate = 0;
+            int outRate = 0;
+            QString outFormat;
+            mpv_node sourceNode{};
+            mpv_node outNode{};
+            if (mpv_get_property(m_mpv, "audio-params", MPV_FORMAT_NODE, &sourceNode) >= 0) {
+                sourceRate = mpvNodeMapInt(sourceNode, "samplerate");
+                mpv_free_node_contents(&sourceNode);
+            }
+            if (mpv_get_property(m_mpv, "audio-out-params", MPV_FORMAT_NODE, &outNode) >= 0) {
+                outRate = mpvNodeMapInt(outNode, "samplerate");
+                outFormat = mpvNodeMapString(outNode, "format");
+                mpv_free_node_contents(&outNode);
+            }
+
+            if (outRate <= 0) {
+                const QString cardId = alsaCardIdFromDevice(m_audioDevice);
+                const QList<AlsaHwCard> cards = loadAlsaHwCards();
+                for (const AlsaHwCard &card : cards) {
+                    if (card.id != cardId) {
+                        continue;
+                    }
+                    QFile hw(QStringLiteral("/proc/asound/card%1/pcm0p/sub0/hw_params").arg(card.index));
+                    if (hw.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        const QString text = QString::fromUtf8(hw.readAll());
+                        const QRegularExpression rateRe(QStringLiteral(R"(rate:\s*(\d+))"));
+                        const QRegularExpressionMatch m = rateRe.match(text);
+                        if (m.hasMatch()) {
+                            outRate = m.captured(1).toInt();
+                        }
+                        if (text.contains(QLatin1String("closed"))) {
+                            outRate = 0;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            const QString reservedNote =
+                QStringLiteral(" (hidden from OS settings until bit-perfect is off)");
+            if (m_currentPath.isEmpty() || (!m_playing && sourceRate <= 0 && outRate <= 0)) {
+                status = QStringLiteral("Exclusive ALSA ready") + reservedNote;
+                active = true;
+            } else if (sourceRate > 0 && outRate > 0 && sourceRate == outRate) {
+                status = QStringLiteral("%1 → DAC %2 exclusive")
+                             .arg(formatRateHz(sourceRate), formatRateHz(outRate));
+                if (!outFormat.isEmpty()) {
+                    status += QStringLiteral(" · ") + outFormat;
+                }
+                status += reservedNote;
+                active = true;
+            } else if (outRate > 0 && sourceRate > 0 && sourceRate != outRate) {
+                status = QStringLiteral("Rate mismatch: source %1, DAC %2 — not bit-perfect.")
+                             .arg(formatRateHz(sourceRate), formatRateHz(outRate));
+            } else if (outRate > 0) {
+                status = QStringLiteral("DAC locked at %1 exclusive").arg(formatRateHz(outRate))
+                         + reservedNote;
+                active = true;
+            } else {
+                status = QStringLiteral("Exclusive device selected — waiting for output params…");
+                active = true;
+            }
+        }
+    }
+
+    if (m_bitPerfectActive == active && m_bitPerfectStatus == status) {
+        return;
+    }
+    m_bitPerfectActive = active;
+    m_bitPerfectStatus = status;
+    emit bitPerfectStatusChanged();
+}
+
+bool PlaybackService::reopenEnginePreservingPlayback() {
+    return reopenEnginePreservingPlayback(m_position, m_playing && !m_paused);
+}
+
+bool PlaybackService::reopenEnginePreservingPlayback(double resumePos, bool wasPlaying) {
+    const bool hadTrack = !m_currentPath.isEmpty() && m_queueIndex >= 0
+        && m_queueIndex < m_queue.size();
+
+    shutdownMpv();
+    m_pollTimer.start(16);
+    if (!initMpv()) {
+        m_error = QStringLiteral("Audio engine restart failed");
+        emit playbackChanged();
+        refreshBitPerfectStatus();
+        return false;
+    }
+    setVolume(m_volume);
+
+    if (hadTrack) {
+        loadCurrentQueueTrackResuming(resumePos, wasPlaying);
+    }
+    holdResumePlaying(wasPlaying);
+    refreshBitPerfectStatus();
+    return true;
+}
+
 void PlaybackService::setDacPassthrough(bool enabled) {
     if (m_dacPassthrough == enabled) {
         return;
     }
-    m_dacPassthrough = enabled;
-    if (enabled && m_muted) {
-        // Mute never engages on the passthrough path; drop stale flag so the icon stays honest.
-        m_muted = false;
-        emit volumeChanged();
-    }
-    emit dacPassthroughChanged();
 
-    if (!m_mpv) {
-        // Engine not started yet; initMpv() will apply the mode.
-        return;
-    }
-
-    // ao/exclusive require an engine restart. Preserve queue + position.
     const bool hadTrack = !m_currentPath.isEmpty() && m_queueIndex >= 0
         && m_queueIndex < m_queue.size();
     const double resumePos = m_position;
     const bool wasPlaying = m_playing && !m_paused;
 
-    shutdownMpv();
-    m_pollTimer.start(16);
-    if (!initMpv()) {
-        m_error = QStringLiteral("Audio engine restart failed after DAC toggle");
-        emit playbackChanged();
+    m_dacPassthrough = enabled;
+    if (enabled && m_muted) {
+        m_muted = false;
+        emit volumeChanged();
+    }
+
+    if (enabled) {
+        if (!acquireExclusiveForCurrentDevice()) {
+            m_error = QStringLiteral("Could not reserve the DAC from PipeWire");
+            emit playbackChanged();
+        }
+        emit dacPassthroughChanged();
+        emit audioBackendChanged();
+        if (!reopenEnginePreservingPlayback(resumePos, wasPlaying)) {
+            QThread::msleep(500);
+            acquireExclusiveForCurrentDevice();
+            reopenEnginePreservingPlayback(resumePos, wasPlaying);
+        }
         return;
     }
-    setVolume(m_volume);
 
-    if (hadTrack) {
-        loadCurrentQueueTrack();
-        if (resumePos > 1.0) {
-            seek(resumePos);
+    // Drop exclusive ALSA before giving the card back to PipeWire.
+    const QString alsaHw =
+        isAlsaHwDevice(m_audioDevice) ? m_audioDevice : QString();
+
+    if (m_mpv) {
+        shutdownMpv();
+        m_pollTimer.start(16);
+    }
+    restoreExclusiveLease();
+
+    if (!alsaHw.isEmpty()) {
+        QString pw;
+        for (int i = 0; i < 15; ++i) {
+            pw = pipewireSinkForAlsaHwDevice(alsaHw);
+            if (!pw.isEmpty()) {
+                break;
+            }
+            QThread::msleep(200);
         }
-        if (!wasPlaying) {
-            pause();
+        m_audioDevice = pw; // empty → system default
+    }
+
+    emit dacPassthroughChanged();
+    emit audioBackendChanged();
+
+    if (!initMpv()) {
+        QThread::msleep(500);
+        if (m_audioDevice.isEmpty() && !preferredUsbDacDevice().isEmpty()) {
+            const QString pw = pipewireSinkForAlsaHwDevice(preferredUsbDacDevice());
+            if (!pw.isEmpty()) {
+                m_audioDevice = pw;
+            }
+        }
+        if (!initMpv()) {
+            m_error = QStringLiteral("Audio engine failed to restart after leaving bit-perfect");
+            emit playbackChanged();
+            refreshBitPerfectStatus();
+            return;
         }
     }
+    setVolume(m_volume);
+    if (hadTrack) {
+        loadCurrentQueueTrackResuming(resumePos, wasPlaying);
+    }
+    holdResumePlaying(wasPlaying);
+    refreshBitPerfectStatus();
+}
+
+bool PlaybackService::retryExclusiveOutput() {
+    if (!m_dacPassthrough) {
+        return false;
+    }
+    const double resumePos = m_position;
+    const bool wasPlaying = m_playing && !m_paused;
+    if (m_mpv) {
+        shutdownMpv();
+        m_pollTimer.start(16);
+    }
+    restoreExclusiveLease();
+    if (!acquireExclusiveForCurrentDevice()) {
+        refreshBitPerfectStatus();
+        return false;
+    }
+    QThread::msleep(300);
+    if (!reopenEnginePreservingPlayback(resumePos, wasPlaying)) {
+        refreshBitPerfectStatus();
+        return false;
+    }
+    refreshBitPerfectStatus();
+    return true;
 }
 
 void PlaybackService::setAudioDevice(const QString &name) {
@@ -635,61 +1027,75 @@ void PlaybackService::setAudioDevice(const QString &name) {
         return;
     }
     m_audioDevice = name;
+    if (m_dacPassthrough) {
+        const double resumePos = m_position;
+        const bool wasPlaying = m_playing && !m_paused;
+
+        if (m_mpv) {
+            shutdownMpv();
+            m_pollTimer.start(16);
+        }
+        if (!acquireExclusiveForCurrentDevice()) {
+            refreshBitPerfectStatus();
+            emit audioBackendChanged();
+            return;
+        }
+        reopenEnginePreservingPlayback(resumePos, wasPlaying);
+        emit audioBackendChanged();
+        return;
+    }
     if (m_mpv) {
         const QString oldBackend = m_audioBackend;
         runMpvCommand(m_mpv, {QStringLiteral("set"), QStringLiteral("audio-device"),
                               name.isEmpty() ? QStringLiteral("auto") : name});
         refreshAudioBackend();
         if (m_audioBackend == oldBackend) {
-            // Backend string can stay identical (e.g. pre-init); still notify audioDevice bindings.
             emit audioBackendChanged();
         }
+        refreshBitPerfectStatus();
     } else {
         emit audioBackendChanged();
+        refreshBitPerfectStatus();
     }
 }
 
 QVariantList PlaybackService::audioDeviceList() const {
-    QVariantList out;
-    if (!m_mpv) {
-        return out;
-    }
-    mpv_node node;
-    if (mpv_get_property(m_mpv, "audio-device-list", MPV_FORMAT_NODE, &node) < 0) {
-        return out;
-    }
-    if (node.format == MPV_FORMAT_NODE_ARRAY && node.u.list) {
-        for (int i = 0; i < node.u.list->num; ++i) {
-            const mpv_node *entry = &node.u.list->values[i];
-            if (entry->format != MPV_FORMAT_NODE_MAP || !entry->u.list) {
-                continue;
-            }
-            QString name;
-            QString description;
-            for (int j = 0; j < entry->u.list->num; ++j) {
-                const char *key = entry->u.list->keys[j];
-                const mpv_node *value = &entry->u.list->values[j];
-                if (!key || value->format != MPV_FORMAT_STRING || !value->u.string) {
-                    continue;
+    QList<AudioDeviceEntry> raw;
+    if (m_mpv) {
+        mpv_node node;
+        if (mpv_get_property(m_mpv, "audio-device-list", MPV_FORMAT_NODE, &node) >= 0) {
+            if (node.format == MPV_FORMAT_NODE_ARRAY && node.u.list) {
+                for (int i = 0; i < node.u.list->num; ++i) {
+                    const mpv_node *entry = &node.u.list->values[i];
+                    if (entry->format != MPV_FORMAT_NODE_MAP || !entry->u.list) {
+                        continue;
+                    }
+                    AudioDeviceEntry device;
+                    for (int j = 0; j < entry->u.list->num; ++j) {
+                        const char *key = entry->u.list->keys[j];
+                        const mpv_node *value = &entry->u.list->values[j];
+                        if (!key || value->format != MPV_FORMAT_STRING || !value->u.string) {
+                            continue;
+                        }
+                        if (qstrcmp(key, "name") == 0) {
+                            device.name = QString::fromUtf8(value->u.string);
+                        } else if (qstrcmp(key, "description") == 0) {
+                            device.description = QString::fromUtf8(value->u.string);
+                        }
+                    }
+                    if (device.name.isEmpty()) {
+                        continue;
+                    }
+                    if (device.description.isEmpty()) {
+                        device.description = device.name;
+                    }
+                    raw.append(device);
                 }
-                if (qstrcmp(key, "name") == 0) {
-                    name = QString::fromUtf8(value->u.string);
-                } else if (qstrcmp(key, "description") == 0) {
-                    description = QString::fromUtf8(value->u.string);
-                }
             }
-            if (name.isEmpty()) {
-                continue;
-            }
-            QVariantMap item;
-            item.insert(QStringLiteral("name"), name);
-            item.insert(QStringLiteral("description"),
-                        description.isEmpty() ? name : description);
-            out.append(item);
+            mpv_free_node_contents(&node);
         }
     }
-    mpv_free_node_contents(&node);
-    return out;
+    return filterAudioDevices(raw, m_dacPassthrough, m_audioDevice, loadPulseSinkMeta());
 }
 
 void PlaybackService::handleMprisPlay() { play(); }

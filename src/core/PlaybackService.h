@@ -7,6 +7,8 @@
 
 #include <mpv/client.h>
 
+#include "AudioDeviceFilter.h"
+
 enum class RepeatMode { Off, Track, Queue };
 
 class PlaybackService : public QObject {
@@ -27,6 +29,8 @@ class PlaybackService : public QObject {
     Q_PROPERTY(bool dacPassthrough READ dacPassthrough WRITE setDacPassthrough NOTIFY dacPassthroughChanged)
     Q_PROPERTY(QString audioBackend READ audioBackend NOTIFY audioBackendChanged)
     Q_PROPERTY(QString audioDevice READ audioDevice WRITE setAudioDevice NOTIFY audioBackendChanged)
+    Q_PROPERTY(bool bitPerfectActive READ bitPerfectActive NOTIFY bitPerfectStatusChanged)
+    Q_PROPERTY(QString bitPerfectStatus READ bitPerfectStatus NOTIFY bitPerfectStatusChanged)
 
 public:
     explicit PlaybackService(QObject *parent = nullptr);
@@ -48,6 +52,8 @@ public:
     bool dacPassthrough() const { return m_dacPassthrough; }
     QString audioBackend() const { return m_audioBackend; }
     QString audioDevice() const { return m_audioDevice; }
+    bool bitPerfectActive() const { return m_bitPerfectActive; }
+    QString bitPerfectStatus() const { return m_bitPerfectStatus; }
 
     Q_INVOKABLE void playPath(const QString &path, const QString &title = {},
                               const QString &artist = {}, const QString &album = {});
@@ -67,6 +73,7 @@ public:
     Q_INVOKABLE void setDacPassthrough(bool enabled);
     Q_INVOKABLE void setAudioDevice(const QString &name);
     Q_INVOKABLE QVariantList audioDeviceList() const;
+    Q_INVOKABLE bool retryExclusiveOutput();
 
     bool ensureMpv();
 
@@ -87,6 +94,7 @@ signals:
     void trackFinished();
     void dacPassthroughChanged();
     void audioBackendChanged();
+    void bitPerfectStatusChanged();
 
 private:
     bool initMpv();
@@ -96,7 +104,16 @@ private:
     void handleMpvEvent(mpv_event *event);
     void syncFromMpv();
     void loadCurrentQueueTrack();
+    void loadCurrentQueueTrackResuming(double resumePos, bool wasPlaying);
     void refreshAudioBackend();
+    void refreshBitPerfectStatus();
+    void ensureDacDeviceSelected();
+    bool acquireExclusiveForCurrentDevice();
+    void restoreExclusiveLease();
+    bool reopenEnginePreservingPlayback();
+    bool reopenEnginePreservingPlayback(double resumePos, bool wasPlaying);
+    void holdResumePlaying(bool wasPlaying);
+    void enforceResumePlaying();
     void rebuildShuffleBag(int preferFirstIndex);
     bool hasNextInQueue() const;
 
@@ -126,6 +143,10 @@ private:
     bool m_trackEndedPending = false;
     QString m_error;
     bool m_dacPassthrough = false;
+    bool m_resumeHoldPlaying = false;
     QString m_audioBackend;
     QString m_audioDevice;
+    bool m_bitPerfectActive = false;
+    QString m_bitPerfectStatus;
+    AlsaExclusiveLease m_alsaLease;
 };

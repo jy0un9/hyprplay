@@ -29,7 +29,7 @@ AbstractButton {
             text: control.text
             font.pixelSize: Theme.fontBody
             font.weight: control.navHighlighted ? Font.DemiBold : Font.Normal
-            color: control.navHighlighted ? Theme.accent : Theme.foreground
+            color: control.navHighlighted ? Theme.accent : Theme.chromeIcon
             opacity: control.navHighlighted ? 1 : 0.82
             anchors.verticalCenter: parent.verticalCenter
             elide: Text.ElideRight
