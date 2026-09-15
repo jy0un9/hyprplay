@@ -14,6 +14,6 @@ pkgbase = hyprplay
 	depends = ffmpeg
 	optdepends = opus-tools: FLAC→Opus convert import mode (opusenc)
 	source = hyprplay-0.1.3.tar.gz::https://github.com/jy0un9/hyprplay/archive/refs/tags/v0.1.3.tar.gz
-	sha256sums = SKIP
+	sha256sums = 852cd31f586bb625b19dc407af015d282c085005ae27013b325d6050bceb9254
 
 pkgname = hyprplay
